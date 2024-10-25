@@ -182,7 +182,6 @@ interpretation."
 		  (buffer-substring-no-properties (1- (point)) (1+ end))
 		(goto-char (1+ end))))))))))
 
-(defvar eshell-glob-chars-regexp nil)
 (defvar eshell-glob-matches)
 (defvar message-shown)
 
@@ -190,11 +189,12 @@ interpretation."
   '(("**/" . recurse)
     ("***/" . recurse-symlink)))
 
+(defvar eshell-glob-chars-regexp nil)
 (defsubst eshell-glob-chars-regexp ()
   "Return the lazily-created value for `eshell-glob-chars-regexp'."
   (or eshell-glob-chars-regexp
       (setq-local eshell-glob-chars-regexp
-		  (format "[%s]+" (apply 'string eshell-glob-chars-list)))))
+                  (rx-to-string `(+ (any ,@eshell-glob-chars-list)) t))))
 
 (defun eshell-glob-regexp (pattern)
   "Convert glob-pattern PATTERN to a regular expression.
@@ -306,8 +306,8 @@ The result is a list of three elements:
         (setq start-dir (pop globs))
       (setq start-dir (file-name-as-directory ".")))
     (while globs
-      (if-let ((recurse (cdr (assoc (car globs)
-                                    eshell-glob-recursive-alist))))
+      (if-let* ((recurse (cdr (assoc (car globs)
+                                     eshell-glob-recursive-alist))))
           (if last-saw-recursion
               (setcar result recurse)
             (push recurse result)
@@ -348,7 +348,7 @@ regular expressions, and these cannot support the above constructs."
         ;; always be sure if the "~" is a home directory reference or
         ;; part of a glob (e.g. if the argument was assembled from
         ;; variables).
-        glob
+        (if eshell-glob-splice-results (list glob) glob)
       (unwind-protect
           (apply #'eshell-glob-entries globs)
         (if message-shown

@@ -85,6 +85,7 @@
 (declare-function treesit-node-prev-sibling "treesit.c")
 (declare-function treesit-node-first-child-for-pos "treesit.c")
 (declare-function treesit-node-next-sibling "treesit.c")
+(declare-function treesit-node-eq "treesit.c")
 (declare-function treesit-query-compile "treesit.c")
 
 ;;; Custom variables
@@ -286,7 +287,7 @@ one step according to the great-grand-parent indent level.  The
 reason there is a difference between grand-parent and
 great-grand-parent here is that the node containing the newline
 is actually the parent of point at the moment of indentation."
-  (when-let ((node (treesit-node-on (point) (point))))
+  (when-let* ((node (treesit-node-on (point) (point))))
     (if (string-equal "translation_unit"
                       (treesit-node-type
                        (treesit-node-parent
@@ -314,12 +315,12 @@ doesn't have a child.
 
 PARENT is NODE's parent, BOL is the beginning of non-whitespace
 characters of the current line."
-  (when-let ((prev-sibling
-              (or (treesit-node-prev-sibling node t)
-                  (treesit-node-prev-sibling
-                   (treesit-node-first-child-for-pos parent bol) t)
-                  (treesit-node-child parent -1 t)))
-             (continue t))
+  (when-let* ((prev-sibling
+               (or (treesit-node-prev-sibling node t)
+                   (treesit-node-prev-sibling
+                    (treesit-node-first-child-for-pos parent bol) t)
+                   (treesit-node-child parent -1 t)))
+              (continue t))
     (save-excursion
       (while (and prev-sibling continue)
         (pcase (treesit-node-type prev-sibling)
@@ -335,16 +336,17 @@ characters of the current line."
           ((or "#elif" "#else")
            (setq prev-sibling (treesit-node-prev-sibling
                                (treesit-node-parent prev-sibling) t)))
-          ;; If the start of the previous sibling isn't at the
-          ;; beginning of a line, something's probably not quite
-          ;; right, go a step further. (E.g., comment after a
-          ;; statement.)  If the previous sibling is the first named
-          ;; node then anchor to that, e.g. when returning an aggregate
-          ;; and starting the items on the same line as {.
+          ;; If the start of the previous sibling isn't at the beginning
+          ;; of a line, something's probably not quite right, go a step
+          ;; further. (E.g., comment after a statement.)  If the
+          ;; previous sibling is the first named node, then anchor to
+          ;; that, e.g. when returning an aggregate and starting the
+          ;; items on the same line as {.
           (_ (goto-char (treesit-node-start prev-sibling))
              (if (or (looking-back (rx bol (* whitespace))
-                                   (line-beginning-position)))
-                     (null (treesit-node-prev-sibling prev-sibling t))
+                                   (line-beginning-position))
+                     (treesit-node-eq (treesit-node-child parent 0 t)
+                                      prev-sibling))
                  (setq continue nil)
                (setq prev-sibling
                      (treesit-node-prev-sibling prev-sibling)))))))
@@ -1101,8 +1103,8 @@ is required, not just the declaration part for DEFUN."
 
 `treesit-defun-type-regexp' defines what constructs to indent."
   (interactive "*")
-  (when-let ((orig-point (point-marker))
-             (range (c-ts-mode--emacs-defun-at-point t)))
+  (when-let* ((orig-point (point-marker))
+              (range (c-ts-mode--emacs-defun-at-point t)))
     (indent-region (car range) (cdr range))
     (goto-char orig-point)))
 
