@@ -1984,16 +1984,6 @@ ns_fullscreen_hook (struct frame *f)
   if (!FRAME_VISIBLE_P (f))
     return;
 
-   if (! [view fsIsNative] && f->want_fullscreen == FULLSCREEN_BOTH)
-    {
-      /* Old style fs don't initiate correctly if created from
-         init/default-frame alist, so use a timer (not nice...).  */
-      [NSTimer scheduledTimerWithTimeInterval: 0.5 target: view
-                                     selector: @selector (handleFS)
-                                     userInfo: nil repeats: NO];
-      return;
-    }
-
   block_input ();
   [view handleFS];
   unblock_input ();
@@ -2961,24 +2951,28 @@ ns_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
   NSTRACE_MSG ("which:%d cursor:%d overlay:%d width:%d height:%d period:%d",
                p->which, p->cursor_p, p->overlay_p, p->wd, p->h, p->dh);
 
-  /* Work out the rectangle we will need to clear.  */
-  clearRect = NSMakeRect (p->x, p->y, p->wd, p->h);
-
-  if (p->bx >= 0 && !p->overlay_p)
-    clearRect = NSUnionRect (clearRect, NSMakeRect (p->bx, p->by, p->nx, p->ny));
-
-  /* Handle partially visible rows.  */
-  clearRect = NSIntersectionRect (clearRect, rowRect);
-
-  /* The visible portion of imageRect will always be contained within
-     clearRect.  */
-  ns_focus (f, &clearRect, 1);
-  if (! NSIsEmptyRect (clearRect))
+  /* Clear screen unless overlay.  */
+  if (!p->overlay_p)
     {
-      NSTRACE_RECT ("clearRect", clearRect);
+      /* Work out the rectangle we will need to clear.  */
+      clearRect = NSMakeRect (p->x, p->y, p->wd, p->h);
 
-      [[NSColor colorWithUnsignedLong:face->background] set];
-      NSRectFill (clearRect);
+      if (p->bx >= 0)
+        clearRect = NSUnionRect (clearRect, NSMakeRect (p->bx, p->by, p->nx, p->ny));
+
+      /* Handle partially visible rows.  */
+      clearRect = NSIntersectionRect (clearRect, rowRect);
+
+      /* The visible portion of imageRect will always be contained
+	 within clearRect.  */
+      ns_focus (f, &clearRect, 1);
+      if (!NSIsEmptyRect (clearRect))
+        {
+          NSTRACE_RECT ("clearRect", clearRect);
+
+          [[NSColor colorWithUnsignedLong:face->background] set];
+          NSRectFill (clearRect);
+        }
     }
 
   NSBezierPath *bmp = [fringe_bmp objectForKey:[NSNumber numberWithInt:p->which]];
@@ -7895,6 +7889,9 @@ ns_in_echo_area (void)
 
   NSTRACE_RETURN_SIZE (frameSize);
 
+  /* Trigger `move-frame-functions' (Bug#74074).  */
+  [self windowDidMove:(NSNotification *)sender];
+
   return frameSize;
 }
 
@@ -8526,6 +8523,11 @@ ns_in_echo_area (void)
   NSColor *col;
 
   NSTRACE ("[EmacsView toggleFullScreen:]");
+
+  /* Reset fs_is_native to value of ns-use-native-full-screen if not
+     fullscreen already */
+  if (fs_state != FULLSCREEN_BOTH)
+    fs_is_native = ns_use_native_fullscreen;
 
   if (fs_is_native)
     {
@@ -9364,7 +9366,10 @@ ns_in_echo_area (void)
 
 - (void)createToolbar: (struct frame *)f
 {
-  if (FRAME_UNDECORATED (f) || !FRAME_EXTERNAL_TOOL_BAR (f) || [self toolbar] != nil)
+  if (FRAME_UNDECORATED (f)
+      || [self styleMask] == NSWindowStyleMaskBorderless
+      || !FRAME_EXTERNAL_TOOL_BAR (f)
+      || [self toolbar] != nil)
     return;
 
   EmacsView *view = (EmacsView *)FRAME_NS_VIEW (f);

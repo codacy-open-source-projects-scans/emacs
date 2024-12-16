@@ -58,33 +58,16 @@
 (require 'css-mode) ;; for embed css into html
 (require 'js) ;; for embed javascript into html
 (require 'comint)
+(treesit-declare-unavailable-functions)
 
 (eval-when-compile
   (require 'cl-lib)
   (require 'rx)
   (require 'subr-x))
 
-(declare-function treesit-node-child "treesit.c")
-(declare-function treesit-node-child-by-field-name "treesit.c")
-(declare-function treesit-node-end "treesit.c")
-(declare-function treesit-node-parent "treesit.c")
-(declare-function treesit-node-start "treesit.c")
-(declare-function treesit-node-string "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-parser-add-notifier "treesit.c")
-(declare-function treesit-parser-buffer "treesit.c")
-(declare-function treesit-parser-create "treesit.c")
-(declare-function treesit-parser-included-ranges "treesit.c")
-(declare-function treesit-parser-list "treesit.c")
-(declare-function treesit-parser-language "treesit.c")
-(declare-function treesit-query-compile "treesit.c")
-(declare-function treesit-search-forward "treesit.c")
-(declare-function treesit-node-prev-sibling "treesit.c")
-(declare-function treesit-node-first-child-for-pos "treesit.c")
-
 ;;; Install treesitter language parsers
 (defvar php-ts-mode--language-source-alist
-  '((php . ("https://github.com/tree-sitter/tree-sitter-php" "v0.23.4" "php/src"))
+  '((php . ("https://github.com/tree-sitter/tree-sitter-php" "v0.23.11" "php/src"))
     (phpdoc . ("https://github.com/claytonrcarter/tree-sitter-phpdoc"))
     (html . ("https://github.com/tree-sitter/tree-sitter-html"  "v0.23.0"))
     (javascript . ("https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.0"))
@@ -437,7 +420,7 @@ Useful for debugging."
 
 Return `php-ts-mode-indent-offset' plus 1 when BOL is after
 `php-ts-mode--possibly-braceless-keyword-re', otherwise return 0.  It's
-usefull for matching incomplete compound_statement or colon_block.
+useful for matching incomplete compound_statement or colon_block.
 PARENT is NODE's parent, BOL is the beginning of non-whitespace
 characters of the current line."
   (and (null node)
@@ -477,16 +460,20 @@ PARENT is its parent."
               (treesit-node-start parent)
               (line-end-position))))))
 
-(defun php-ts-mode--js-css-tag-bol (node _parent &rest _)
+(defun php-ts-mode--js-css-tag-bol (_node parent &rest _)
   "Find the first non-space characters of html tags <script> or <style>.
 
-If NODE is nil return `line-beginning-position'.  PARENT is ignored.
-NODE is the node to match and PARENT is its parent."
-  (if (null node)
-      (line-beginning-position)
-    (save-excursion
-      (goto-char (treesit-node-start node))
-      (re-search-backward "<script>\\|<style>" nil t))))
+Return `line-beginning-position' when `treesit-node-at' is HTML or PHP.
+Otherwise go to the PARENT and search backward for <script> or <style> tags.
+Should be used only for Javascript or CSS indenting rules.
+NODE, ignored, is the node to match and PARENT is its parent."
+  (let ((lang (treesit-language-at (point))))
+    (if (or (eq lang 'javascript)
+	    (eq lang 'css))
+	(save-excursion
+	  (goto-char (treesit-node-start parent))
+	  (re-search-backward "<script.*>\\|<style.*>" nil t))
+      (line-beginning-position))))
 
 (defun php-ts-mode--parent-eol (_node parent &rest _)
   "Find the last non-space characters of the PARENT of the current NODE.
@@ -640,6 +627,7 @@ characters of the current line."
            ((query "(class_interface_clause (qualified_name) @indent)")
             parent-bol php-ts-mode-indent-offset)
            ((parent-is "class_declaration") parent-bol 0)
+	   ((parent-is "namespace_use_declaration") parent-bol php-ts-mode-indent-offset)
            ((parent-is "namespace_use_group") parent-bol php-ts-mode-indent-offset)
            ((parent-is "function_definition") parent-bol 0)
            ((parent-is "member_call_expression") first-sibling php-ts-mode-indent-offset)
@@ -781,7 +769,7 @@ characters of the current line."
   '("--" "**=" "*=" "/=" "%=" "+=" "-=" ".=" "<<=" ">>=" "&=" "^="
     "|=" "??"  "??=" "||" "&&" "|" "^" "&" "==" "!=" "<>" "===" "!=="
     "<" ">" "<=" ">=" "<=>" "<<" ">>" "+" "-" "." "*" "**" "/" "%"
-    "->" "?->")
+    "->" "?->" "...")
   "PHP operators for tree-sitter font-locking.")
 
 (defconst php-ts-mode--predefined-constant
@@ -838,6 +826,11 @@ characters of the current line."
   "Return t if (visibility_modifier (operation)) is defined, nil otherwise."
   (ignore-errors
     (progn (treesit-query-compile 'php "(visibility_modifier (operation))" t) t)))
+
+(defun php-ts-mode--test-property-hook-clause-p ()
+  "Return t if property_hook is a named node, nil otherwise."
+  (ignore-errors
+    (progn (treesit-query-compile 'php "(property_hook)" t) t)))
 
 (defun php-ts-mode--font-lock-settings ()
   "Tree-sitter font-lock settings."
@@ -947,6 +940,8 @@ characters of the current line."
       name: (_) @font-lock-type-face)
      (function_definition
       name: (_) @font-lock-function-name-face)
+     ,@(when (php-ts-mode--test-property-hook-clause-p)
+	 '((property_hook (name) @font-lock-function-name-face)))
      (method_declaration
       name: (_) @font-lock-function-name-face)
      (method_declaration
@@ -967,6 +962,7 @@ characters of the current line."
      ,@(when (not (php-ts-mode--test-namespace-use-group-clause-p))
          '((namespace_use_group
             (namespace_use_clause (name) @font-lock-type-face))))
+     (namespace_use_clause (name) @font-lock-type-face)
      (namespace_name "\\" @font-lock-delimiter-face)
      (namespace_name (name) @font-lock-type-face)
      (use_declaration (name) @font-lock-property-use-face)
@@ -992,7 +988,7 @@ characters of the current line."
      (member_call_expression
       name: (_) @font-lock-function-call-face)
      (nullsafe_member_call_expression
-      name: (_) @font-lock-constant-face))
+      name: (_) @font-lock-function-call-face))
 
    :language 'php
    :feature 'argument
@@ -1106,14 +1102,13 @@ For NODE, OVERRIDE, START, and END, see `treesit-font-lock-rules'."
            (string-equal "plain_value" (treesit-node-type node)))
       (let ((color (css--compute-color start (treesit-node-text node t))))
         (when color
-          (treesit-fontify-with-override
-           (treesit-node-start node) (treesit-node-end node)
-           (list 'face
-                 (list :background color
-                       :foreground (readable-foreground-color
-                                    color)
-                       :box '(:line-width -1)))
-           override start end)))
+	  (with-silent-modifications
+	    (add-text-properties
+	     (treesit-node-start node) (treesit-node-end node)
+	     (list 'face (list :background color
+			       :foreground (readable-foreground-color
+                                            color)
+			       :box '(:line-width -1)))))))
     (treesit-fontify-with-override
      (treesit-node-start node) (treesit-node-end node)
      'font-lock-variable-name-face
@@ -1265,8 +1260,14 @@ less common PHP-style # comment.  SOFT works the same as in
          (line-end-position)
          t nil))
       (let ((offset (- (match-beginning 0) (line-beginning-position)))
-            (comment-prefix (match-string 0)))
-        (if soft (insert-and-inherit ?\n) (newline 1))
+            (comment-prefix (match-string 0))
+	    (insert-line-break
+             (lambda ()
+	       (delete-horizontal-space)
+	       (if soft
+		   (insert-and-inherit ?\n)
+		 (newline  1)))))
+	(funcall insert-line-break)
         (delete-region (line-beginning-position) (point))
         (insert
          (make-string offset ?\s)
@@ -1364,14 +1365,14 @@ Depends on `c-ts-common-comment-setup'."
      ;; PHPDOC specific
      document
      phpdoc-error)
-    (keyword string type name)
+    (keyword string property type name)
     (;; common
      attribute assignment constant escape-sequence function-scope
      base-clause literal variable-name variable
      ;; Javascript specific
      jsx number pattern string-interpolation)
     (;; common
-     argument bracket delimiter error function-call operator property
+     argument bracket delimiter error function-call operator
      ;; Javascript specific
      function)))
 
@@ -1471,10 +1472,6 @@ Depends on `c-ts-common-comment-setup'."
                                   "statement")))
                    (text ,(regexp-opt '("comment" "text"))))))
 
-    ;; Nodes like struct/enum/union_specifier can appear in
-    ;; function_definitions, so we need to find the top-level node.
-    (setq-local treesit-defun-prefer-top-level t)
-
     ;; Indent.
     (when (eq php-ts-mode-indent-style 'wordpress)
       (setq-local indent-tabs-mode t))
@@ -1543,7 +1540,6 @@ Depends on `c-ts-common-comment-setup'."
 
     ;; should be the last one
     (setq-local treesit-primary-parser (treesit-parser-create 'php))
-    (treesit-font-lock-recompute-features)
     (treesit-major-mode-setup)
     (add-hook 'flymake-diagnostic-functions #'php-ts-mode-flymake-php nil 'local)))
 

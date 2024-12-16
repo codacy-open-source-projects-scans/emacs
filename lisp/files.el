@@ -1274,12 +1274,29 @@ NOERROR is equal to `reload'), or otherwise emit a warning."
         (res (require feature filename (if (eq noerror 'reload) nil noerror))))
     ;; If the `feature' was not yet provided, `require' just loaded the right
     ;; file, so we're done.
-    (when (eq lh load-history)
+    (when (and res (eq lh load-history))
       ;; If `require' did nothing, we need to make sure that was warranted.
-      (let ((fn (locate-file (or filename (symbol-name feature))
-                             load-path (get-load-suffixes))))
+      (let* ((fn (locate-file (or filename (symbol-name feature))
+                              load-path (get-load-suffixes) nil
+                              )) ;; load-prefer-newer
+             ;; We used to look for `fn' in `load-history' with `assoc'
+             ;; which works in most cases, but in some cases (e.g. when
+             ;; `load-prefer-newer' is set) `locate-file' can return a
+             ;; different file than the file that `require' would load,
+             ;; so the file won't be found in `load-history' even though
+             ;; we did load "it".  (bug#74040)
+             ;; So use a "permissive" search which doesn't pay attention to
+             ;; differences between file extensions.
+             (prefix (if (string-match
+                          (concat (regexp-opt (get-load-suffixes)) "\\'") fn)
+                         (concat (substring fn 0 (match-beginning 0)) ".")
+                       fn))
+             (lh load-history))
+        (while (and lh (let ((file (car-safe (car lh))))
+                         (not (and file (string-prefix-p prefix file)))))
+          (setq lh (cdr lh)))
         (cond
-         ((assoc fn load-history) nil)  ;We loaded the right file.
+         (lh nil)                       ;We loaded the right file.
          ((eq noerror 'reload) (load fn nil 'nomessage))
          ((and fn (memq feature features))
           (let ((oldfile (symbol-file feature 'provide)))
@@ -2961,7 +2978,7 @@ since only a single case-insensitive search through the alist is made."
      ("\\.for\\'" . fortran-mode)
      ("\\.p\\'" . pascal-mode)
      ("\\.pas\\'" . pascal-mode)
-     ("\\.\\(dpr\\|DPR\\)\\'" . delphi-mode)
+     ("\\.\\(dpr\\|DPR\\)\\'" . opascal-mode)
      ("\\.\\([pP]\\([Llm]\\|erl\\|od\\)\\|al\\)\\'" . perl-mode)
      ("Imakefile\\'" . makefile-imake-mode)
      ("Makeppfile\\(?:\\.mk\\)?\\'" . makefile-makepp-mode) ; Put this before .mk
@@ -3035,8 +3052,6 @@ since only a single case-insensitive search through the alist is made."
      ;; Anyway, the following extensions are supported by gfortran.
      ("\\.f9[05]\\'" . f90-mode)
      ("\\.f0[38]\\'" . f90-mode)
-     ("\\.indent\\.pro\\'" . fundamental-mode) ; to avoid idlwave-mode
-     ("\\.\\(pro\\|PRO\\)\\'" . idlwave-mode)
      ("\\.srt\\'" . srecode-template-mode)
      ("\\.prolog\\'" . prolog-mode)
      ("\\.tar\\'" . tar-mode)
@@ -3606,7 +3621,10 @@ instead.
 FUNCTION is typically a major mode which \"does the same thing\" as
 MODE, but can also be nil to hide other entries (either in this var or
 in `major-mode-remap-defaults') and means that we should call MODE."
-  :type '(alist (symbol) (function)))
+  :type '(alist
+          :tag "Remappings"
+          :key-type (symbol :tag "From major mode")
+          :value-type (function :tag "To mode (or function)")))
 
 (defvar major-mode-remap-defaults nil
   "Alist mapping file-specified modes to alternative modes.
@@ -4423,7 +4441,8 @@ already the major mode."
     ('eval
      (pcase val
        (`(add-hook ',hook . ,_) (hack-one-local-variable--obsolete hook)))
-     (save-excursion (eval val t)))
+     (let ((enable-local-variables nil)) ;FIXME: Should be buffer-local!
+       (save-excursion (eval val t))))
     (_
      (hack-one-local-variable--obsolete var)
      ;; Make sure the string has no text properties.
@@ -4469,6 +4488,21 @@ Returns the new list."
 	;; Need a new cons in case we setcdr later.
 	(push (cons variable value) variables)))))
 
+(defun dir-locals--load-mode-if-needed (key alist)
+  ;; If KEY is an extra parent it may remain not loaded
+  ;; (hence with some of its mode-specific vars missing their
+  ;; `safe-local-variable' property), leading to spurious
+  ;; prompts about unsafe vars (bug#68246).
+  (when (and (symbolp key) (autoloadp (indirect-function key)))
+    (let ((unsafe nil))
+      (pcase-dolist (`(,var . ,_val) alist)
+        (unless (or (memq var '(mode eval))
+                    (get var 'safe-local-variable))
+          (setq unsafe t)))
+      (when unsafe
+        (ignore-errors
+          (autoload-do-load (indirect-function key)))))))
+
 (defun dir-locals-collect-variables (class-variables root variables
                                                      &optional predicate)
   "Collect entries from CLASS-VARIABLES into VARIABLES.
@@ -4499,15 +4533,9 @@ to see whether it should be considered."
                   (funcall predicate key)
                 (or (not key)
                     (derived-mode-p key)))
-              ;; If KEY is an extra parent it may remain not loaded
-              ;; (hence with some of its mode-specific vars missing their
-              ;; `safe-local-variable' property), leading to spurious
-              ;; prompts about unsafe vars (bug#68246).
-              (if (and (symbolp key) (autoloadp (indirect-function key)))
-                  (ignore-errors (autoload-do-load (indirect-function key))))
               (let* ((alist (cdr entry))
                      (subdirs (assq 'subdirs alist)))
-                (if (or (not subdirs)
+                (when (or (not subdirs)
                         (progn
                           (setq alist (remq subdirs alist))
                           (cdr-safe subdirs))
@@ -4516,6 +4544,7 @@ to see whether it should be considered."
                         ;; variables apply to this directory and N levels
                         ;; below it (0 == nil).
                         (equal root (expand-file-name default-directory)))
+                  (dir-locals--load-mode-if-needed key alist)
                     (setq variables (dir-locals-collect-mode-variables
                                      alist variables))))))))
       (error
@@ -8490,7 +8519,8 @@ If RESTART, restart Emacs after killing the current Emacs process."
      ;; Query the user for other things, perhaps.
      (run-hook-with-args-until-failure 'kill-emacs-query-functions)
      (or (null confirm)
-         (funcall confirm "Really exit Emacs? "))
+         (funcall confirm (format "Really %s Emacs? "
+                                  (if restart "restart" "exit"))))
      (kill-emacs nil restart))))
 
 (defun save-buffers-kill-terminal (&optional arg)

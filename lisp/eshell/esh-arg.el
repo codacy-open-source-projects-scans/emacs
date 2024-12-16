@@ -92,6 +92,11 @@ If POS is nil, the location of point is checked."
     eshell-parse-special-reference
     ;; Numbers convert to numbers if they stand alone.
     eshell-parse-number
+    ;; Integers convert to numbers if they stand alone or are part of a
+    ;; range expression.
+    eshell-parse-integer
+    ;; Range tokens go between integers and denote a half-open range.
+    eshell-parse-range-token
     ;; Parse any non-special characters, based on the current context.
     eshell-parse-non-special
     ;; Whitespace is an argument delimiter.
@@ -193,8 +198,18 @@ Eshell will expand special refs like \"#<ARG...>\" into
                   (rx-to-string
                    `(+ (not (any ,@eshell-special-chars-outside-quoting))) t))))
 
+(defvar eshell--after-range-token-regexp nil)
+(defsubst eshell--after-range-token-regexp ()
+  (or eshell--after-range-token-regexp
+      (setq-local eshell--after-range-token-regexp
+                  (rx-to-string
+                   `(or (any ,@eshell-special-chars-outside-quoting)
+                        (regexp ,eshell-integer-regexp))
+                   t))))
+
 (defsubst eshell-escape-arg (string)
   "Return STRING with the `escaped' property on it."
+  (declare (obsolete nil "31.1"))
   (if (stringp string)
       (add-text-properties 0 (length string) '(escaped t) string))
   string)
@@ -239,19 +254,15 @@ would produce (\"abc\" \"d\")."
          (t
           (setq result (eshell-concat-1 quoted result i))))))))
 
-(defsubst eshell--numberlike-p (object)
-  (or (numberp object)
-      (and (stringp object) (get-text-property 0 'number object))))
-
 (defun eshell-concat-1 (quoted first second)
   "Concatenate FIRST and SECOND.
 If QUOTED is nil and either FIRST or SECOND are numberlike, try to mark
 the result as a number as well."
-  (let ((result (concat (eshell-stringify first) (eshell-stringify second))))
-    (remove-text-properties 0 (length result) '(number) result)
+  (let ((result (concat (eshell-stringify first quoted)
+                        (eshell-stringify second quoted))))
     (when (and (not quoted)
-               (or (eshell--numberlike-p first)
-                   (eshell--numberlike-p second)))
+               (or (numberp first)  (eshell--numeric-string-p first)
+                   (numberp second) (eshell--numeric-string-p second)))
       (eshell-mark-numeric-string result))
     result))
 
@@ -415,6 +426,8 @@ Point is left at the end of the arguments."
   "A stub function that generates an error if a floating splice is found."
   (error "Splice operator is not permitted in this context"))
 
+(defconst eshell--range-token (propertize ".." 'eshell-range t))
+
 (defun eshell-parse-number ()
   "Parse a numeric argument.
 Eshell can treat unquoted arguments matching `eshell-number-regexp' as
@@ -425,9 +438,49 @@ their numeric values."
              (eshell-arg-delimiter (match-end 0)))
     (goto-char (match-end 0))
     (let ((str (match-string 0)))
-      (when (> (length str) 0)
-        (add-text-properties 0 (length str) '(number t) str))
+      (add-text-properties 0 (length str) '(number t) str)
       str)))
+
+(defun eshell-parse-integer ()
+  "Parse an integer argument."
+  (unless eshell-current-quoted
+    (let ((prev-token (if eshell-arg-listified
+                          (car (last eshell-current-argument))
+                        eshell-current-argument)))
+      (when (and (memq prev-token `(nil ,eshell--range-token))
+                 (looking-at eshell-integer-regexp)
+                 (or (eshell-arg-delimiter (match-end 0))
+                     (save-excursion
+                       (goto-char (match-end 0))
+                       (looking-at-p (rx "..")))))
+        (goto-char (match-end 0))
+        (let ((str (match-string 0)))
+          (add-text-properties 0 (length str) '(number t) str)
+          str)))))
+
+(defun eshell-unmark-range-token (string)
+  (remove-text-properties 0 (length string) '(eshell-range) string))
+
+(defun eshell-parse-range-token ()
+  "Parse a range token.
+This separates two integers (possibly as dollar expansions) and denotes
+a half-open range."
+  (when (and (not eshell-current-quoted)
+             (looking-at (rx ".."))
+             (or (eshell-arg-delimiter (match-end 0))
+                 (save-excursion
+                   (goto-char (match-end 0))
+                   (looking-at (eshell--after-range-token-regexp)))))
+    ;; If we parse multiple range tokens for a single argument, then
+    ;; they can't actually be range tokens.  Unmark the result to
+    ;; indicate this.
+    (when (memq eshell--range-token
+                (if eshell-arg-listified
+                    eshell-current-argument
+                  (list eshell-current-argument)))
+      (add-hook 'eshell-current-modifiers #'eshell-unmark-range-token))
+    (forward-char 2)
+    eshell--range-token))
 
 (defun eshell-parse-non-special ()
   "Parse any non-special characters, depending on the current context."
@@ -488,53 +541,46 @@ after are both returned."
     (when (= (1+ (point)) (point-max))
       (throw 'eshell-incomplete "\\"))
     (forward-char 2) ; Move one char past the backslash.
-    (let ((special-chars (if eshell-current-quoted
-                             eshell-special-chars-inside-quoting
-                           eshell-special-chars-outside-quoting)))
-      (cond
-       ;; Escaped newlines are extra-special: they expand to an empty
-       ;; token to allow for continuing Eshell commands across
-       ;; multiple lines.
-       ((eq (char-before) ?\n)
-        'eshell-empty-token)
-       ((memq (char-before) special-chars)
-        (list 'eshell-escape-arg (char-to-string (char-before))))
-       ;; If the char is in a quote, backslash only has special
-       ;; meaning if it is escaping a special char.  Otherwise, the
-       ;; result is the literal string "\c".
-       (eshell-current-quoted
-        (concat "\\" (char-to-string (char-before))))
-       (t
-        (char-to-string (char-before)))))))
+    (cond
+     ;; Escaped newlines are extra-special: they expand to an empty
+     ;; token to allow for continuing Eshell commands across
+     ;; multiple lines.
+     ((eq (char-before) ?\n)
+      'eshell-empty-token)
+     ;; If the char is in a quote, backslash only has special
+     ;; meaning if it is escaping a special char.  Otherwise, the
+     ;; result is the literal string "\c".
+     ((and eshell-current-quoted
+           (not (memq (char-before) eshell-special-chars-inside-quoting)))
+      (concat "\\" (char-to-string (char-before))))
+     (t
+      (char-to-string (char-before))))))
 
 (defun eshell-parse-literal-quote ()
   "Parse a literally quoted string.  Nothing has special meaning!"
-  (if (eq (char-after) ?\')
-      (let ((end (eshell-find-delimiter ?\' ?\')))
-	(if (not end)
-            (throw 'eshell-incomplete "'")
-	  (let ((string (buffer-substring-no-properties (1+ (point)) end)))
-	    (goto-char (1+ end))
-	    (while (string-match "''" string)
-	      (setq string (replace-match "'" t t string)))
-	    (list 'eshell-escape-arg string))))))
+  (when (eq (char-after) ?\')
+    (let ((end (eshell-find-delimiter ?\' ?\')))
+      (unless end
+        (throw 'eshell-incomplete "'"))
+      (let ((string (buffer-substring-no-properties (1+ (point)) end)))
+        (goto-char (1+ end))
+        (while (string-match "''" string)
+          (setq string (replace-match "'" t t string)))
+        string))))
 
 (defun eshell-parse-double-quote ()
   "Parse a double quoted string, which allows for variable interpolation."
   (when (eq (char-after) ?\")
     (let* ((end (eshell-find-delimiter ?\" ?\" nil nil t))
-	   (eshell-current-quoted t))
-      (if (not end)
-          (throw 'eshell-incomplete "\"")
-	(prog1
-	    (save-restriction
-	      (forward-char)
-	      (narrow-to-region (point) end)
-	      (let ((arg (eshell-parse-argument)))
-		(if (eq arg nil)
-		    ""
-		  (list 'eshell-escape-arg arg))))
-	  (goto-char (1+ end)))))))
+           (eshell-current-quoted t))
+      (unless end
+        (throw 'eshell-incomplete "\""))
+      (prog1
+          (save-restriction
+            (forward-char)
+            (narrow-to-region (point) end)
+            (or (eshell-parse-argument) ""))
+        (goto-char (1+ end))))))
 
 (defun eshell-unescape-inner-double-quote (bound)
   "Unescape escaped characters inside a double-quoted string.

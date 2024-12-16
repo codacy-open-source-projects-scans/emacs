@@ -1761,11 +1761,15 @@ satisfied.
 Repeatedly evaluate @var{subcommand} until @var{conditional} is
 satisfied.
 
-@item for @var{var} in @var{list}@dots{} @var{subcommand}
-Iterate over each element of @var{list}, storing the element in
-@var{var} and evaluating @var{subcommand}.  If @var{list} is not a list,
-treat it as a list of one element.  If you specify multiple @var{lists},
-this will iterate over each of them in turn.
+@item for @var{var} in @var{sequence}@dots{} @var{subcommand}
+Iterate over each element of @var{sequence}, storing the element in
+@var{var} and evaluating @var{subcommand}.  If @var{sequence} is a
+range of the form @code{@var{begin}..@var{end}}, iterate over each
+integer between @var{begin} and @var{end}, not including @var{end}.  If
+@var{sequence} is not a sequence, treat it as a list of one element.
+
+If you specify multiple @var{sequences}, this will iterate over each of
+them in turn.
 
 @end table
 
@@ -2251,11 +2255,6 @@ Treating the value as a file name, gets the file name excluding the
 final extension.  For example, @samp{foo/bar/baz.tar.gz(:r)} expands
 to @samp{foo/bar/baz.tar}.
 
-@item q
-Marks that the value should be interpreted by Eshell literally, so
-that any special characters like @samp{$} no longer have any special
-meaning.
-
 @item s/@var{pattern}/@var{replace}/
 Replaces the first instance of the regular expression @var{pattern}
 with @var{replace}.  Signals an error if no match is found.
@@ -2661,10 +2660,10 @@ navigation and searching are bound to different keys:
 
 @table @kbd
 @kindex M-r
-@kindex M-s
 @item M-r
-@itemx M-s
-History I-search.
+History I-search.  @kbd{M-r} starts an incremental search in input
+history.  While searching, type @kbd{C-r} to move to the previous match,
+and @kbd{C-s} to move to the next match in the input history.
 
 @kindex M-p
 @kindex M-n
@@ -2674,6 +2673,15 @@ Previous and next history line.  If there is anything on the input
 line when you run these commands, they will instead jump to the
 previous or next line that begins with that string.
 @end table
+
+@vindex eshell-history-isearch
+If you would like to use the default Isearch key-bindings to search
+through input history, you may customize @code{eshell-history-isearch}
+to @code{t}.  That makes, for example, @kbd{C-r} and @kbd{C-M-r} in an
+Eshell buffer search in input history only.  In addition, if the value
+of @code{eshell-history-isearch} is @code{dwim}, those commands search
+in the history when the point is after the last prompt, and search in
+the buffer when the point is before or within the last prompt.
 
 @node Extension modules
 @chapter Extension modules

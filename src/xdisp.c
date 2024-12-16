@@ -1358,7 +1358,7 @@ window_box_height (struct window *w)
 	  if (hl_row && hl_row->mode_line_p)
 	    height -= hl_row->height;
 	  else
-	    height -= estimate_mode_line_height (f, HEADER_LINE_FACE_ID);
+	    height -= estimate_mode_line_height (f, CURRENT_HEADER_LINE_ACTIVE_FACE_ID (w));
 	}
     }
 
@@ -1753,7 +1753,7 @@ pos_visible_p (struct window *w, ptrdiff_t charpos, int *x, int *y,
 	= window_parameter (w, Qheader_line_format);
 
       w->header_line_height
-	= display_mode_line (w, HEADER_LINE_FACE_ID,
+	= display_mode_line (w, CURRENT_HEADER_LINE_ACTIVE_FACE_ID (w),
 			     NILP (window_header_line_format)
 			     ? BVAR (current_buffer, header_line_format)
 			     : window_header_line_format);
@@ -3197,13 +3197,14 @@ CHECK_WINDOW_END (struct window *w)
 
    BASE_FACE_ID is the id of a base face to use.  It must be one of
    DEFAULT_FACE_ID for normal text, MODE_LINE_ACTIVE_FACE_ID,
-   MODE_LINE_INACTIVE_FACE_ID, or HEADER_LINE_FACE_ID for displaying
-   mode lines, or TOOL_BAR_FACE_ID for displaying the tool-bar.
+   MODE_LINE_INACTIVE_FACE_ID, HEADER_LINE_ACTIVE_FACE_ID, or
+   HEADER_LINE_INACTIVE_FACE_ID for displaying mode lines, or
+   TOOL_BAR_FACE_ID for displaying the tool-bar.
 
    If ROW is null and BASE_FACE_ID is equal to MODE_LINE_ACTIVE_FACE_ID,
-   MODE_LINE_INACTIVE_FACE_ID, or HEADER_LINE_FACE_ID, the iterator
-   will be initialized to use the corresponding mode line glyph row of
-   the desired matrix of W.  */
+   MODE_LINE_INACTIVE_FACE_ID, HEADER_LINE_ACTIVE_FACE_ID, or
+   HEADER_LINE_INACTIVE_FACE_ID the iterator will be initialized to use
+   the corresponding mode line glyph row of the desired matrix of W.  */
 
 void
 init_iterator (struct it *it, struct window *w,
@@ -3251,7 +3252,8 @@ init_iterator (struct it *it, struct window *w,
 	row = MATRIX_MODE_LINE_ROW (w->desired_matrix);
       else if (base_face_id == TAB_LINE_FACE_ID)
 	row = MATRIX_TAB_LINE_ROW (w->desired_matrix);
-      else if (base_face_id == HEADER_LINE_FACE_ID)
+      else if (base_face_id == HEADER_LINE_ACTIVE_FACE_ID
+	       || base_face_id == HEADER_LINE_INACTIVE_FACE_ID)
 	{
 	  /* Header line row depends on whether tab line is enabled.  */
 	  w->desired_matrix->tab_line_p = window_wants_tab_line (w);
@@ -4996,7 +4998,7 @@ face_before_or_after_it_pos (struct it *it, bool before_p)
 		  /* For composition, we must check the position after
 		     the composition.  */
 		  pos.charpos += it->cmp_it.nchars;
-		  pos.bytepos += it->len;
+		  pos.bytepos += it->cmp_it.nbytes;
 		}
 	      else
 		INC_TEXT_POS (pos, it->multibyte_p);
@@ -11854,7 +11856,7 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
       Lisp_Object window_header_line_format
 	= window_parameter (w, Qheader_line_format);
 
-      y = y + display_mode_line (w, HEADER_LINE_FACE_ID,
+      y = y + display_mode_line (w, CURRENT_HEADER_LINE_ACTIVE_FACE_ID (w),
 				 NILP (window_header_line_format)
 				 ? BVAR (current_buffer, header_line_format)
 				 : window_header_line_format);
@@ -27254,6 +27256,35 @@ deep_copy_glyph_row (struct glyph_row *to, struct glyph_row *from)
     fill_up_frame_row_with_spaces (to, to_used);
 }
 
+/* Produce glyphs for a menu separator on a tty.
+
+   FIXME: This is only a "good enough for now" implementation of menu
+   separators as described in the Elisp info manual.  We should probably
+   ignore menu separators when computing the width of a menu.  Secondly,
+   optionally using Unicode characters via display table entries would
+   be nice.  Patches very welcome.  */
+
+static void
+display_tty_menu_separator (struct it *it, const char *label, int width)
+{
+  USE_SAFE_ALLOCA;
+  char c;
+  if (strcmp (label, "--space") == 0)
+    c = ' ';
+  else if (strcmp (label, "--double-line") == 0)
+    c = '=';
+  else
+    c = '-';
+  char *sep = SAFE_ALLOCA (width);
+  memset (sep, c, width - 1);
+  sep[width -  1] = 0;
+  display_string (sep, Qnil, Qnil, 0, 0, it, width - 1, width - 1,
+		  FRAME_COLS (it->f) - 1, -1);
+  display_string (" ", Qnil, Qnil, 0, 0, it, 1, 0,
+		  FRAME_COLS (it->f) - 1, -1);
+  SAFE_FREE ();
+}
+
 /* Display one menu item on a TTY, by overwriting the glyphs in the
    frame F's desired glyph matrix with glyphs produced from the menu
    item text.  Called from term.c to display TTY drop-down menus one
@@ -27328,6 +27359,7 @@ display_tty_menu_item (const char *item_text, int width, int face_id,
   /* Pad with a space on the left.  */
   display_string (" ", Qnil, Qnil, 0, 0, &it, 1, 0, FRAME_COLS (f) - 1, -1);
   width--;
+
   /* Display the menu item, pad with spaces to WIDTH.  */
   if (submenu)
     {
@@ -27338,9 +27370,13 @@ display_tty_menu_item (const char *item_text, int width, int face_id,
       display_string (" >", Qnil, Qnil, 0, 0, &it, width, 0,
 		      FRAME_COLS (f) - 1, -1);
     }
+  else if (menu_separator_name_p (item_text))
+    {
+      display_tty_menu_separator (&it, item_text, width);
+    }
   else
-    display_string (item_text, Qnil, Qnil, 0, 0, &it,
-		    width, 0, FRAME_COLS (f) - 1, -1);
+    display_string (item_text, Qnil, Qnil, 0, 0, &it, width, 0,
+		    FRAME_COLS (f) - 1, -1);
 
   row->used[TEXT_AREA] = max (saved_used, row->used[TEXT_AREA]);
   row->truncated_on_right_p = saved_truncated;
@@ -27453,11 +27489,11 @@ display_mode_lines (struct window *w)
   line_number_displayed = false;
   w->column_number_displayed = -1;
 
+  struct window *sel_w = XWINDOW (old_selected_window);
   if (window_wants_mode_line (w))
     {
       Lisp_Object window_mode_line_format
 	= window_parameter (w, Qmode_line_format);
-      struct window *sel_w = XWINDOW (old_selected_window);
 
       /* Select mode line face based on the real selected window.  */
       display_mode_line (w,
@@ -27485,7 +27521,7 @@ display_mode_lines (struct window *w)
       Lisp_Object window_header_line_format
 	= window_parameter (w, Qheader_line_format);
 
-      display_mode_line (w, HEADER_LINE_FACE_ID,
+      display_mode_line (w, CURRENT_HEADER_LINE_ACTIVE_FACE_ID_3 (sel_w, sel_w, w),
 			 NILP (window_header_line_format)
 			 ? BVAR (current_buffer, header_line_format)
 			 : window_header_line_format);
@@ -27500,11 +27536,12 @@ display_mode_lines (struct window *w)
 }
 
 
-/* Display mode or header/tab line of window W.  FACE_ID specifies
-   which line to display; it is either MODE_LINE_ACTIVE_FACE_ID,
-   HEADER_LINE_FACE_ID or TAB_LINE_FACE_ID.  FORMAT is the
-   mode/header/tab line format to display.  Value is the pixel height
-   of the mode/header/tab line displayed.  */
+/* Display mode or header/tab line of window W.  FACE_ID specifies which
+   line to display; it is either MODE_LINE_ACTIVE_FACE_ID,
+   HEADER_LINE_ACTIVE_FACE_ID, HEADER_LINE_INACTIVE_FACE_ID, or
+   TAB_LINE_FACE_ID.  FORMAT is the mode/header/tab line format to
+   display.  Value is the pixel height of the mode/header/tab line
+   displayed.  */
 
 static int
 display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
@@ -27525,7 +27562,8 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
       it.glyph_row->tab_line_p = true;
       w->desired_matrix->tab_line_p = true;
     }
-  else if (face_id == HEADER_LINE_FACE_ID)
+  else if (face_id == HEADER_LINE_ACTIVE_FACE_ID
+	   || face_id == HEADER_LINE_INACTIVE_FACE_ID)
     w->desired_matrix->header_line_p = true;
 
   /* FIXME: This should be controlled by a user option.  But
@@ -27544,7 +27582,9 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
   record_unwind_save_match_data ();
 
   if (NILP (Vmode_line_compact)
-      || face_id == HEADER_LINE_FACE_ID || face_id == TAB_LINE_FACE_ID)
+      || face_id == HEADER_LINE_ACTIVE_FACE_ID
+      || face_id == HEADER_LINE_INACTIVE_FACE_ID
+      || face_id == TAB_LINE_FACE_ID)
     {
       mode_line_target = MODE_LINE_DISPLAY;
       display_mode_element (&it, 0, 0, 0, format, Qnil, false);
@@ -28313,7 +28353,8 @@ are the selected window and the WINDOW's buffer).  */)
 		       ? MODE_LINE_ACTIVE_FACE_ID : MODE_LINE_INACTIVE_FACE_ID)
     : EQ (face, Qmode_line_active) ? MODE_LINE_ACTIVE_FACE_ID
     : EQ (face, Qmode_line_inactive) ? MODE_LINE_INACTIVE_FACE_ID
-    : EQ (face, Qheader_line) ? HEADER_LINE_FACE_ID
+    : EQ (face, Qheader_line_active) ? HEADER_LINE_ACTIVE_FACE_ID
+    : EQ (face, Qheader_line_inactive) ? HEADER_LINE_INACTIVE_FACE_ID
     : EQ (face, Qtab_line) ? TAB_LINE_FACE_ID
     : EQ (face, Qtab_bar) ? TAB_BAR_FACE_ID
     : EQ (face, Qtool_bar) ? TOOL_BAR_FACE_ID

@@ -660,15 +660,14 @@ valid Content-Type header.  If none of the functions can guess, return
   "Return \"text/html\" if RESPONSE-BUFFER has an HTML doctype declaration.
 HEADERS is unused."
   ;; https://html.spec.whatwg.org/multipage/syntax.html#the-doctype
-  (let ((case-fold-search t)
-        (target
-         "<!doctype +html *\\(>\\|system +\\(\\\"\\|'\\)+about:legacy-compat\\)"))
-    (with-current-buffer response-buffer
-      (goto-char (point-min))
-      ;; match basic <!doctype html> and also legacy variants as
-      ;; specified in link above
-      (when (re-search-forward target nil t)
-        "text/html"))))
+  (with-current-buffer response-buffer
+    (let ((case-fold-search t))
+      (save-excursion
+        (goto-char (point-min))
+        ;; Match basic "<!doctype html>" and also legacy variants as
+        ;; specified in link above -- being purposely lax about it.
+        (when (search-forward "<!doctype html" nil t)
+          "text/html")))))
 
 (defun eww--rename-buffer ()
   "Rename the current EWW buffer.
@@ -2077,7 +2076,12 @@ Interactively, EVENT is the value of `last-nonmenu-event'."
                                   (insert-file-contents file)
                                   (buffer-string)))
                           (cons "name" name)
-                          (cons "filename" file))
+                          ;; RFC 2183 declares that recipients should
+                          ;; only respect the basename of the filename
+                          ;; parameter, and the leading directories
+                          ;; might divulge private information, so we
+                          ;; only send the basename in our request.
+                          (cons "filename" (file-name-nondirectory file)))
                     values)))
 	   ((equal (plist-get input :type) "submit")
 	    ;; We want the values from buttons if we hit a button if
@@ -2138,11 +2142,15 @@ Interactively, EVENT is the value of `last-nonmenu-event'."
 
 (defun eww-browse-with-external-browser (&optional url)
   "Browse the current URL with an external browser.
-The browser to used is specified by the
-`browse-url-secondary-browser-function' variable."
+Use `browse-url-secondary-browser-function' if it is an external
+browser, otherwise use `browse-url-with-browser-kind' to open an
+external browser."
   (interactive nil eww-mode)
-  (funcall browse-url-secondary-browser-function
-           (or url (plist-get eww-data :url))))
+  (setq url (or url (plist-get eww-data :url)))
+  (if (eq 'external (browse-url--browser-kind
+                     browse-url-secondary-browser-function url))
+      (funcall browse-url-secondary-browser-function url)
+    (browse-url-with-browser-kind 'external url)))
 
 (defun eww-remove-tracking (url)
   "Remove the commong utm_ tracking cookies from URLs."
@@ -2156,11 +2164,12 @@ The browser to used is specified by the
     url))
 
 (defun eww-follow-link (&optional external mouse-event)
-  "Browse the URL under point.
-If EXTERNAL is single prefix, browse the URL using
-`browse-url-secondary-browser-function'.
+  "Browse the URL at point, optionally the position of MOUSE-EVENT.
 
-If EXTERNAL is double prefix, browse in new buffer."
+EXTERNAL is the prefix argument.  If called interactively with
+\\[universal-argument] pressed once, browse the URL using
+`eww-browse-with-external-browser'.  If called interactively, with
+\\[universal-argument] pressed twice, browse in new buffer."
   (interactive
    (list current-prefix-arg last-nonmenu-event)
    eww-mode)
@@ -2176,7 +2185,7 @@ If EXTERNAL is double prefix, browse in new buffer."
       ;; and `browse-url-mailto-function'.
       (browse-url url))
      ((and (consp external) (<= (car external) 4))
-      (funcall browse-url-secondary-browser-function url)
+      (eww-browse-with-external-browser url)
       (shr--blink-link))
      ;; This is a #target url in the same page as the current one.
      ((and (setq target (url-target (url-generic-parse-url url)))
@@ -2917,31 +2926,34 @@ with completion.  If there are none, return nil."
                             (mapcar #'caddr alternates))))
           (sep-width (string-pixel-width " ")))
       (if (cdr alternates)
-          (let ((completion-extra-properties
-                 (list :annotation-function
-                       (lambda (feed)
-                         (let* ((attrs (alist-get feed
-                                                  alternates
-                                                  nil
-                                                  nil
-                                                  #'string=))
-                                (type (car attrs))
-                                (title (cadr attrs)))
+            (completing-read
+             "Alternate URL: "
+             (completion-table-with-metadata
+              alternates
+              `((annotation-function
+                 . ,(lambda (feed)
+                      (let* ((attrs (alist-get feed
+                                               alternates
+                                               nil
+                                               nil
+                                               #'string=))
+                             (type (car attrs))
+                             (title (cadr attrs)))
+                        (concat
+                         (propertize " " 'display
+                                     `(space :align-to
+                                             (,(+ sep-width
+                                                  url-max-width))))
+                         title
+                         (when type
                            (concat
                             (propertize " " 'display
                                         `(space :align-to
-                                                (,(+ sep-width
-                                                     url-max-width))))
-                            title
-                            (when type
-                              (concat
-                               (propertize " " 'display
-                                           `(space :align-to
-                                                   (,(+ (* 2 sep-width)
-                                                        url-max-width
-                                                        title-max-width))))
-                               "[" type "]"))))))))
-            (completing-read "Alternate URL: " alternates nil t))
+                                                (,(+ (* 2 sep-width)
+                                                     url-max-width
+                                                     title-max-width))))
+                            "[" type "]"))))))))
+             nil t)
         (caar alternates)))))
 
 (defun eww-copy-alternate-url ()

@@ -259,32 +259,26 @@
 (require 'compat)
 (require 'project nil 'noerror)
 (require 'seq)
+(treesit-declare-unavailable-functions)
 
 ;; Avoid compiler warnings
 (defvar compilation-error-regexp-alist)
 (defvar outline-heading-end-regexp)
-
-(declare-function treesit-parser-create "treesit.c")
-(declare-function treesit-induce-sparse-tree "treesit.c")
-(declare-function treesit-node-child-by-field-name "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-node-start "treesit.c")
-(declare-function treesit-node-end "treesit.c")
-(declare-function treesit-node-parent "treesit.c")
-(declare-function treesit-node-prev-sibling "treesit.c")
 
 (autoload 'comint-mode "comint")
 (autoload 'help-function-arglist "help-fns")
 
 ;;;###autoload
 (defconst python--auto-mode-alist-regexp
-  (rx (or
-       (seq "." (or "py"
-                    "pth"               ; Python Path Configuration File
-                    "pyi"               ; Python Stub File (PEP 484)
-                    "pyw"))             ; MS-Windows specific extension
-       (seq "/" (or "SConstruct" "SConscript"))) ; SCons Build Files
-      eos))
+  ;; (rx (or
+  ;;      (seq "." (or "py"
+  ;;                   "pth"               ; Python Path Configuration File
+  ;;                   "pyi"               ; Python Stub File (PEP 484)
+  ;;                   "pyw"))             ; MS-Windows specific extension
+  ;;      (seq "/" (or "SConstruct" "SConscript"))) ; SCons Build Files
+  ;;     eos)
+  "\\(?:\\.\\(?:p\\(?:th\\|y[iw]?\\)\\)\\|/\\(?:SCons\\(?:\\(?:crip\\|truc\\)t\\)\\)\\)\\'"
+  )
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist (cons python--auto-mode-alist-regexp 'python-mode))
@@ -629,7 +623,10 @@ the {...} holes that appear within f-strings."
               (forward-char 1)          ;Just skip over {{
             (let ((beg (match-beginning 0))
                   (end (condition-case nil
-                           (progn (up-list 1) (min send (point)))
+                           (let ((forward-sexp-function)
+                                 (parse-sexp-ignore-comments))
+                             (up-list 1)
+                             (min send (point)))
                          (scan-error send))))
               (goto-char end)
               (put-text-property beg end 'face nil))))
@@ -718,10 +715,11 @@ class declarations.")
            "aiter" "anext" "ascii" "breakpoint" "bytearray" "bytes" "exec"
            ;; Special attributes:
            ;; https://docs.python.org/3/reference/datamodel.html
-           "__annotations__" "__closure__" "__code__"
-           "__defaults__" "__dict__" "__doc__" "__globals__"
-           "__kwdefaults__" "__name__" "__module__" "__package__"
-           "__qualname__"
+           "__annotations__" "__bases__" "__closure__" "__code__"
+           "__defaults__" "__dict__" "__doc__" "__firstlineno__"
+           "__globals__" "__kwdefaults__" "__name__" "__module__"
+           "__mro__" "__package__" "__qualname__"
+           "__static_attributes__" "__type_params__"
            ;; Extras:
            "__all__")
           symbol-end) . font-lock-builtin-face))
@@ -1034,10 +1032,12 @@ It makes underscores and dots word constituent chars.")
     ">>" ">>=" "|" "|=" "~" "@" "@="))
 
 (defvar python--treesit-special-attributes
-  '("__annotations__" "__closure__" "__code__"
-    "__defaults__" "__dict__" "__doc__" "__globals__"
-    "__kwdefaults__" "__name__" "__module__" "__package__"
-    "__qualname__" "__all__"))
+  '("__annotations__" "__bases__" "__closure__" "__code__"
+    "__defaults__" "__dict__" "__doc__" "__firstlineno__"
+    "__globals__" "__kwdefaults__" "__name__" "__module__"
+    "__mro__" "__package__" "__qualname__"
+    "__static_attributes__" "__type_params__"
+    "__all__"))
 
 (defvar python--treesit-exceptions
   '(;; Python 2 and 3:
@@ -7073,11 +7073,10 @@ implementations: `python-mode' and `python-ts-mode'."
               `((?: . ,(lambda ()
                          (and (zerop (car (syntax-ppss)))
                               (python-info-statement-starts-block-p)
-                              ;; Heuristic: assume walrus operator :=
-                              ;; when colon is preceded by space.
+                              ;; Heuristic for walrus operator :=
                               (save-excursion
                                 (goto-char (- (point) 2))
-                                (looking-at (rx (not space) ":")))
+                                (looking-at (rx (not space) ":" eol)))
                               'after)))))
 
   ;; Add """ ... """ pairing to electric-pair-mode.
@@ -7144,7 +7143,8 @@ implementations: `python-mode' and `python-ts-mode'."
       (defvar grep-files-aliases)
       (defvar grep-find-ignored-directories)
       (cl-pushnew '("py" . "*.py") grep-files-aliases :test #'equal)
-      (dolist (dir '(".tox" ".venv" ".mypy_cache" ".ruff_cache"))
+      (dolist (dir '(".mypy_cache" ".pytest_cache" ".ropeproject"
+                     ".ruff_cache" ".tox" ".venv"))
         (cl-pushnew dir grep-find-ignored-directories))))
 
   (setq-local prettify-symbols-alist python-prettify-symbols-alist)
