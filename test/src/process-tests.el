@@ -1,6 +1,6 @@
 ;;; process-tests.el --- Testing the process facilities -*- lexical-binding: t -*-
 
-;; Copyright (C) 2013-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -352,7 +352,7 @@ works as expected if a file name handler is found."
                (should (equal args '(make-process :name "name"
                                                   :command ("/some/binary")
                                                   :file-handler t)))
-               (cl-incf file-handler-calls)
+               (incf file-handler-calls)
                'fake-process))
       (let ((file-name-handler-alist (list (cons (rx bos "test-handler:")
                                                  #'file-handler)))
@@ -519,6 +519,17 @@ See Bug#30460."
 
 ;; End of tests requiring DNS
 
+(ert-deftest process-tests-check-bug-74907 ()
+  "Check that the result of `network-interface-list' is well-formed.
+(Bug#74907)"
+  (dolist (info (network-interface-list t))
+    (should (stringp (car info)))
+    (should (length= info 4))
+    (should (cl-every #'vectorp (cdr info)))
+    (let ((alen (length (cadr info))))
+      (should (memq alen '(5 9)))       ; Address info also has a port number
+      (should (cl-every (lambda (elt) (length= elt alen)) (cdr info))))))
+
 (defmacro process-tests--ignore-EMFILE (&rest body)
   "Evaluate BODY, ignoring EMFILE errors."
   (declare (indent 0) (debug t))
@@ -652,6 +663,10 @@ FD_SETSIZE."
 (ert-deftest process-tests/fd-setsize-no-crash/make-process ()
   "Check that Emacs doesn't crash when trying to use more than
 FD_SETSIZE file descriptors (Bug#24325)."
+  ;; Emacs is terminated on Android or aborts when the toolkit fails to
+  ;; allocate sufficient graphics buffer handles long before FD_SETSIZE
+  ;; is exceeded.
+  (skip-when (eq system-type 'android))
   (with-timeout (60 (ert-fail "Test timed out"))
     (let ((cat (executable-find "cat")))
       (skip-unless cat)
@@ -697,6 +712,10 @@ FD_SETSIZE file descriptors (Bug#24325)."
 (ert-deftest process-tests/fd-setsize-no-crash/make-pipe-process ()
   "Check that Emacs doesn't crash when trying to use more than
 FD_SETSIZE file descriptors (Bug#24325)."
+  ;; Emacs is terminated on Android or aborts when the toolkit fails to
+  ;; allocate sufficient graphics buffer handles long before FD_SETSIZE
+  ;; is exceeded.
+  (skip-when (eq system-type 'android))
   (with-timeout (60 (ert-fail "Test timed out"))
     (process-tests--fd-setsize-test
       (process-tests--with-buffers buffers
@@ -724,6 +743,10 @@ FD_SETSIZE file descriptors (Bug#24325)."
 (ert-deftest process-tests/fd-setsize-no-crash/make-network-process ()
   "Check that Emacs doesn't crash when trying to use more than
 FD_SETSIZE file descriptors (Bug#24325)."
+  ;; Emacs is terminated on Android or aborts when the toolkit fails to
+  ;; allocate sufficient graphics buffer handles long before FD_SETSIZE
+  ;; is exceeded.
+  (skip-when (eq system-type 'android))
   (skip-unless (featurep 'make-network-process '(:server t)))
   (skip-unless (featurep 'make-network-process '(:family local)))
   ;; Avoid hang due to connect/accept handshake on Cygwin (bug#49496).
@@ -766,6 +789,10 @@ FD_SETSIZE file descriptors (Bug#24325)."
 (ert-deftest process-tests/fd-setsize-no-crash/make-serial-process ()
   "Check that Emacs doesn't crash when trying to use more than
 FD_SETSIZE file descriptors (Bug#24325)."
+  ;; Emacs is terminated on Android or aborts when the toolkit fails to
+  ;; allocate sufficient graphics buffer handles long before FD_SETSIZE
+  ;; is exceeded.
+  (skip-when (eq system-type 'android))
   ;; This test cannot be run if PTYs aren't supported.
   (skip-when (eq system-type 'windows-nt))
   (with-timeout (60 (ert-fail "Test timed out"))
@@ -900,6 +927,9 @@ have written output."
 
 (ert-deftest process-tests/multiple-threads-waiting ()
   :tags (if (getenv "EMACS_EMBA_CI") '(:unstable))
+  ;; This test assumes too much of Posix functionality, and thus is
+  ;; unreliable on MS-Windows.
+  (skip-when (eq system-type 'windows-nt))
   (skip-unless (fboundp 'make-thread))
   (with-timeout (60 (ert-fail "Test timed out"))
     (process-tests--with-processes processes
@@ -996,7 +1026,7 @@ Return nil if FILENAME doesn't exist."
   (with-temp-buffer
     (let* ((proc-buf (current-buffer))
 	   ;; Start a new emacs process to wait idly until interrupted.
-	   (cmd "emacs -batch --eval=\"(sit-for 50000)\"")
+	   (cmd "emacs -Q -batch --eval=\"(sit-for 50000)\"")
 	   (proc (start-file-process-shell-command
                   "test/process-sentinel-signal-event" proc-buf cmd))
 	   (events '()))
@@ -1010,18 +1040,24 @@ Return nil if FILENAME doesn't exist."
       (should (equal 'run (process-status proc)))
       ;; Interrupt the sub-process and wait for it to die.
       (interrupt-process proc)
-      (sleep-for 2)
+      (sleep-for 3)
       ;; Should have received SIGINT...
-      (should (equal 'signal (process-status proc)))
-      (should (equal 2 (process-exit-status proc)))
-      ;; ...and the change description should be "interrupt".
-      (should (equal '("interrupt\n") events)))))
+      (should (equal '(signal 2 ("interrupt\n"))
+                     (list (process-status proc)
+                           (process-exit-status proc)
+                           events))))))
 
 (ert-deftest process-num-processors ()
   "Sanity checks for num-processors."
   (should (equal (num-processors) (num-processors)))
   (should (integerp (num-processors)))
   (should (< 0 (num-processors))))
+
+(ert-deftest process-test-make-pipe-process-no-buffer ()
+  "Test that a pipe process can be created without a buffer."
+  (should     (process-buffer (make-pipe-process :name "test")))
+  (should     (process-buffer (make-pipe-process :name "test" :buffer "test")))
+  (should-not (process-buffer (make-pipe-process :name "test" :buffer nil))))
 
 (provide 'process-tests)
 ;;; process-tests.el ends here

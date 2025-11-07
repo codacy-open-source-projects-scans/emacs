@@ -1,5 +1,5 @@
 /* Primitive operations on Lisp data types for GNU Emacs Lisp interpreter.
-   Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2024 Free Software
+   Copyright (C) 1985-1986, 1988, 1993-1995, 1997-2025 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -27,7 +27,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "lisp.h"
 #include "bignum.h"
-#include "puresize.h"
 #include "character.h"
 #include "buffer.h"
 #include "keyboard.h"
@@ -136,12 +135,6 @@ wrong_type_argument (Lisp_Object predicate, Lisp_Object value)
 }
 
 void
-pure_write_error (Lisp_Object obj)
-{
-  xsignal2 (Qerror, build_string ("Attempt to modify read-only object"), obj);
-}
-
-void
 args_out_of_range (Lisp_Object a1, Lisp_Object a2)
 {
   xsignal2 (Qargs_out_of_range, a1, a2);
@@ -161,6 +154,16 @@ circular_list (Lisp_Object list)
 
 
 /* Data type predicates.  */
+
+/* NO_INLINE to avoid excessive code growth when LTO is in use.  */
+NO_INLINE bool
+slow_eq (Lisp_Object x, Lisp_Object y)
+{
+  return BASE_EQ ((symbols_with_pos_enabled && SYMBOL_WITH_POS_P (x)
+                   ? XSYMBOL_WITH_POS_SYM (x) : x),
+                  (symbols_with_pos_enabled && SYMBOL_WITH_POS_P (y)
+                   ? XSYMBOL_WITH_POS_SYM (y) : y));
+}
 
 DEFUN ("eq", Feq, Seq, 2, 2, 0,
        doc: /* Return t if the two args are the same Lisp object.  */
@@ -209,7 +212,8 @@ a fixed set of types.  */)
 {
   switch (XTYPE (object))
     {
-    case_Lisp_Int:
+    case Lisp_Int0:
+    case Lisp_Int1:
       return Qfixnum;
 
     case Lisp_Symbol:
@@ -505,7 +509,7 @@ DEFUN ("user-ptrp", Fuser_ptrp, Suser_ptrp, 1, 1, 0,
 #endif
 
 DEFUN ("subrp", Fsubrp, Ssubrp, 1, 1, 0,
-       doc: /* Return t if OBJECT is a built-in or native compiled Lisp function.
+       doc: /* Return t if OBJECT is a built-in or native-compiled Lisp function.
 
 See also `primitive-function-p' and `native-comp-function-p'.  */)
   (Lisp_Object object)
@@ -694,7 +698,6 @@ DEFUN ("setcar", Fsetcar, Ssetcar, 2, 2, 0,
   (register Lisp_Object cell, Lisp_Object newcar)
 {
   CHECK_CONS (cell);
-  CHECK_IMPURE (cell, XCONS (cell));
   XSETCAR (cell, newcar);
   return newcar;
 }
@@ -704,7 +707,6 @@ DEFUN ("setcdr", Fsetcdr, Ssetcdr, 2, 2, 0,
   (register Lisp_Object cell, Lisp_Object newcdr)
 {
   CHECK_CONS (cell);
-  CHECK_IMPURE (cell, XCONS (cell));
   XSETCDR (cell, newcdr);
   return newcdr;
 }
@@ -831,8 +833,9 @@ Doing that might make Emacs dysfunctional, and might even crash Emacs.  */)
 
 DEFUN ("bare-symbol", Fbare_symbol, Sbare_symbol, 1, 1, 0,
        doc: /* Extract, if need be, the bare symbol from SYM.
-SYM is either a symbol or a symbol with position.
-Ignore `symbols-with-pos-enabled'.  */)
+SYM must be either a symbol or a symbol with position, otherwise
+the function will signal the `wrong-type-argument' error.
+This function ignores `symbols-with-pos-enabled'.  */)
   (register Lisp_Object sym)
 {
   if (BARE_SYMBOL_P (sym))
@@ -855,7 +858,8 @@ DEFUN ("remove-pos-from-symbol", Fremove_pos_from_symbol,
        Sremove_pos_from_symbol, 1, 1, 0,
        doc: /* If ARG is a symbol with position, return it without the position.
 Otherwise, return ARG unchanged.  Ignore `symbols-with-pos-enabled'.
-Compare with `bare-symbol'.  */)
+Compare with `bare-symbol', which does the same, but signals an error
+if ARG is not a symbol.  */)
   (register Lisp_Object arg)
 {
   if (SYMBOL_WITH_POS_P (arg))
@@ -910,8 +914,9 @@ signal a `cyclic-function-indirection' error.  */)
 
   if (!NILP (Vnative_comp_enable_subr_trampolines)
       && SUBRP (function)
-      && !NATIVE_COMP_FUNCTIONP (function))
-    CALLN (Ffuncall, Qcomp_subr_trampoline_install, symbol);
+      && !NATIVE_COMP_FUNCTIONP (function)
+      && !EQ (definition, Fsymbol_function (symbol)))
+     calln (Qcomp_subr_trampoline_install, symbol);
 #endif
 
   set_symbol_function (symbol, definition);
@@ -982,7 +987,7 @@ defalias (Lisp_Object symbol, Lisp_Object definition)
   { /* Handle automatic advice activation.  */
     Lisp_Object hook = Fget (symbol, Qdefalias_fset_function);
     if (!NILP (hook))
-      call2 (hook, symbol, definition);
+      calln (hook, symbol, definition);
     else
       Ffset (symbol, definition);
   }
@@ -1002,10 +1007,6 @@ The return value is undefined.  */)
   (register Lisp_Object symbol, Lisp_Object definition, Lisp_Object docstring)
 {
   CHECK_SYMBOL (symbol);
-  if (!NILP (Vpurify_flag)
-      /* If `definition' is a keymap, immutable (and copying) is wrong.  */
-      && !KEYMAPP (definition))
-    definition = Fpurecopy (definition);
 
   defalias (symbol, definition);
 
@@ -1058,7 +1059,7 @@ SUBR must be a built-in function.  */)
 }
 
 DEFUN ("native-comp-function-p", Fnative_comp_function_p, Snative_comp_function_p, 1, 1,
-       0, doc: /* Return t if the object is native compiled Lisp function, nil otherwise.  */)
+       0, doc: /* Return t if the object is native-compiled Lisp function, nil otherwise.  */)
   (Lisp_Object object)
 {
   return NATIVE_COMP_FUNCTIONP (object) ? Qt : Qnil;
@@ -1066,7 +1067,7 @@ DEFUN ("native-comp-function-p", Fnative_comp_function_p, Snative_comp_function_
 
 DEFUN ("subr-native-lambda-list", Fsubr_native_lambda_list,
        Ssubr_native_lambda_list, 1, 1, 0,
-       doc: /* Return the lambda list for a native compiled lisp/d
+       doc: /* Return the lambda list for a native-compiled lisp/d
 function or t otherwise.  */)
   (Lisp_Object subr)
 {
@@ -1203,7 +1204,7 @@ Value, if non-nil, is a list (interactive SPEC).  */)
   if (genfun
       /* Avoid burping during bootstrap.  */
       && !NILP (Fsymbol_function (Qoclosure_interactive_form)))
-    return call1 (Qoclosure_interactive_form, fun);
+    return calln (Qoclosure_interactive_form, fun);
   else
     return Qnil;
 }
@@ -1481,7 +1482,7 @@ store_symval_forwarding (lispfwd valcontents, Lisp_Object newval,
 		  }
 		else if (FUNCTIONP (predicate))
 		  {
-		    if (NILP (call1 (predicate, newval)))
+		    if (NILP (calln (predicate, newval)))
 		      wrong_type_argument (predicate, newval);
 		  }
 	      }
@@ -1910,7 +1911,7 @@ notify_variable_watchers (Lisp_Object symbol,
           funcall_subr (XSUBR (watcher), ARRAYELTS (args), args);
         }
       else
-        CALLN (Ffuncall, watcher, symbol, newval, operation, where);
+        calln (watcher, symbol, newval, operation, where);
     }
 
   unbind_to (count, Qnil);
@@ -2583,7 +2584,10 @@ or a byte-code object.  IDX starts at 0.  */)
 DEFUN ("aset", Faset, Saset, 3, 3, 0,
        doc: /* Store into the element of ARRAY at index IDX the value NEWELT.
 Return NEWELT.  ARRAY may be a vector, a string, a char-table or a
-bool-vector.  IDX starts at 0.  */)
+bool-vector.  IDX starts at 0.
+If ARRAY is a unibyte string, NEWELT must be a single byte (0-255).
+If ARRAY is a multibyte string, NEWELT and the previous character at
+index IDX must both be ASCII (0-127).  */)
   (register Lisp_Object array, Lisp_Object idx, Lisp_Object newelt)
 {
   register EMACS_INT idxval;
@@ -2595,7 +2599,6 @@ bool-vector.  IDX starts at 0.  */)
 
   if (VECTORP (array))
     {
-      CHECK_IMPURE (array, XVECTOR (array));
       if (idxval < 0 || idxval >= ASIZE (array))
 	args_out_of_range (array, idx);
       ASET (array, idxval, newelt);
@@ -2613,54 +2616,34 @@ bool-vector.  IDX starts at 0.  */)
     }
   else if (RECORDP (array))
     {
-      CHECK_IMPURE (array, XVECTOR (array));
       if (idxval < 0 || idxval >= PVSIZE (array))
 	args_out_of_range (array, idx);
       ASET (array, idxval, newelt);
     }
   else /* STRINGP */
     {
-      CHECK_IMPURE (array, XSTRING (array));
       if (idxval < 0 || idxval >= SCHARS (array))
 	args_out_of_range (array, idx);
       CHECK_CHARACTER (newelt);
       int c = XFIXNAT (newelt);
-      ptrdiff_t idxval_byte;
-      int prev_bytes;
-      unsigned char workbuf[MAX_MULTIBYTE_LENGTH], *p0 = workbuf, *p1;
 
       if (STRING_MULTIBYTE (array))
 	{
-	  idxval_byte = string_char_to_byte (array, idxval);
-	  p1 = SDATA (array) + idxval_byte;
-	  prev_bytes = BYTES_BY_CHAR_HEAD (*p1);
-	}
-      else if (SINGLE_BYTE_CHAR_P (c))
-	{
-	  SSET (array, idxval, c);
-	  return newelt;
+	  if (c > 0x7f)
+	    error ("Attempt to store non-ASCII char into multibyte string");
+	  ptrdiff_t idxval_byte = string_char_to_byte (array, idxval);
+	  unsigned char *p = SDATA (array) + idxval_byte;
+	  if (*p > 0x7f)
+	    error ("Attempt to replace non-ASCII char in multibyte string");
+	  *p = c;
 	}
       else
 	{
-	  for (ptrdiff_t i = SBYTES (array) - 1; i >= 0; i--)
-	    if (!ASCII_CHAR_P (SREF (array, i)))
-	      args_out_of_range (array, newelt);
-	  /* ARRAY is an ASCII string.  Convert it to a multibyte string.  */
-	  STRING_SET_MULTIBYTE (array);
-	  idxval_byte = idxval;
-	  p1 = SDATA (array) + idxval_byte;
-	  prev_bytes = 1;
+	  if (c > 0xff)
+	    error ("Attempt to store non-byte value into unibyte string");
+	  SSET (array, idxval, c);
 	}
-
-      int new_bytes = CHAR_STRING (c, p0);
-      if (prev_bytes != new_bytes)
-	p1 = resize_string_data (array, idxval_byte, prev_bytes, new_bytes);
-
-      do
-	*p1++ = *p0++;
-      while (--new_bytes != 0);
     }
-
   return newelt;
 }
 
@@ -3550,10 +3533,10 @@ discarding bits.  */)
   CHECK_INTEGER (value);
   CHECK_INTEGER (count);
 
+  if (BASE_EQ (value, make_fixnum (0)))
+    return value;
   if (! FIXNUMP (count))
     {
-      if (BASE_EQ (value, make_fixnum (0)))
-	return value;
       if (mpz_sgn (*xbignum_val (count)) < 0)
 	{
 	  EMACS_INT v = (FIXNUMP (value) ? XFIXNUM (value)
@@ -3563,30 +3546,38 @@ discarding bits.  */)
       overflow_error ();
     }
 
-  if (XFIXNUM (count) <= 0)
+  EMACS_INT c = XFIXNUM (count);
+  if (c <= 0)
     {
-      if (XFIXNUM (count) == 0)
+      if (c == 0)
 	return value;
 
       if ((EMACS_INT) -1 >> 1 == -1 && FIXNUMP (value))
 	{
-	  EMACS_INT shift = -XFIXNUM (count);
+	  EMACS_INT shift = -c;
 	  EMACS_INT result
 	    = (shift < EMACS_INT_WIDTH ? XFIXNUM (value) >> shift
 	       : XFIXNUM (value) < 0 ? -1 : 0);
 	  return make_fixnum (result);
 	}
     }
+  else if (FIXNUMP (value))
+    {
+      EMACS_INT v = XFIXNUM (value);
+      if (stdc_leading_zeros ((EMACS_UINT)(v < 0 ? ~v : v)) - c
+	  >= EMACS_INT_WIDTH - FIXNUM_BITS + 1)
+	return make_fixnum (v << c);
+    }
 
   mpz_t const *zval = bignum_integer (&mpz[0], value);
-  if (XFIXNUM (count) < 0)
+  if (c < 0)
     {
-      if (TYPE_MAXIMUM (mp_bitcnt_t) < - XFIXNUM (count))
+      if (TYPE_MAXIMUM (mp_bitcnt_t) < -c)
 	return make_fixnum (mpz_sgn (*zval) < 0 ? -1 : 0);
-      mpz_fdiv_q_2exp (mpz[0], *zval, - XFIXNUM (count));
+      mpz_fdiv_q_2exp (mpz[0], *zval, -c);
     }
   else
-    emacs_mpz_mul_2exp (mpz[0], *zval, XFIXNUM (count));
+    emacs_mpz_mul_2exp (mpz[0], *zval, c);
   return make_integer_mpz ();
 }
 
@@ -4019,6 +4010,7 @@ syms_of_data (void)
 
   DEFSYM (Qinvalid_function, "invalid-function");
   DEFSYM (Qwrong_number_of_arguments, "wrong-number-of-arguments");
+  DEFSYM (Qmalformed_keyword_arg_list, "malformed-keyword-arg-list");
   DEFSYM (Qno_catch, "no-catch");
   DEFSYM (Qend_of_file, "end-of-file");
   DEFSYM (Qarith_error, "arith-error");
@@ -4079,7 +4071,7 @@ syms_of_data (void)
   DEFSYM (Qaref, "aref");
   DEFSYM (Qaset, "aset");
 
-  error_tail = pure_cons (Qerror, Qnil);
+  error_tail = Fcons (Qerror, Qnil);
 
   /* ERROR is used as a signaler for random errors for which nothing else is
      right.  */
@@ -4087,14 +4079,14 @@ syms_of_data (void)
   Fput (Qerror, Qerror_conditions,
 	error_tail);
   Fput (Qerror, Qerror_message,
-	build_pure_c_string ("error"));
+	build_string ("error"));
 
 #define PUT_ERROR(sym, tail, msg)			\
-  Fput (sym, Qerror_conditions, pure_cons (sym, tail)); \
-  Fput (sym, Qerror_message, build_pure_c_string (msg))
+  Fput (sym, Qerror_conditions, Fcons (sym, tail)); \
+  Fput (sym, Qerror_message, build_string (msg))
 
   PUT_ERROR (Qquit, Qnil, "Quit");
-  PUT_ERROR (Qminibuffer_quit, pure_cons (Qquit, Qnil), "Quit");
+  PUT_ERROR (Qminibuffer_quit, Fcons (Qquit, Qnil), "Quit");
 
   PUT_ERROR (Quser_error, error_tail, "");
   PUT_ERROR (Qwrong_length_argument, error_tail, "Wrong length argument");
@@ -4118,17 +4110,19 @@ syms_of_data (void)
   PUT_ERROR (Qinvalid_function, error_tail, "Invalid function");
   PUT_ERROR (Qwrong_number_of_arguments, error_tail,
 	     "Wrong number of arguments");
+  PUT_ERROR (Qmalformed_keyword_arg_list, error_tail,
+	     "Keyword lacks a corresponding value");
   PUT_ERROR (Qno_catch, error_tail, "No catch for tag");
   PUT_ERROR (Qend_of_file, error_tail, "End of file during parsing");
 
-  arith_tail = pure_cons (Qarith_error, error_tail);
+  arith_tail = Fcons (Qarith_error, error_tail);
   Fput (Qarith_error, Qerror_conditions, arith_tail);
-  Fput (Qarith_error, Qerror_message, build_pure_c_string ("Arithmetic error"));
+  Fput (Qarith_error, Qerror_message, build_string ("Arithmetic error"));
 
   PUT_ERROR (Qbeginning_of_buffer, error_tail, "Beginning of buffer");
   PUT_ERROR (Qend_of_buffer, error_tail, "End of buffer");
   PUT_ERROR (Qbuffer_read_only, error_tail, "Buffer is read-only");
-  PUT_ERROR (Qtext_read_only, pure_cons (Qbuffer_read_only, error_tail),
+  PUT_ERROR (Qtext_read_only, Fcons (Qbuffer_read_only, error_tail),
 	     "Text is read-only");
   PUT_ERROR (Qinhibited_interaction, error_tail,
 	     "User interaction while inhibited");
@@ -4151,10 +4145,10 @@ syms_of_data (void)
   PUT_ERROR (Qunderflow_error, Fcons (Qrange_error, arith_tail),
 	     "Arithmetic underflow error");
 
-  recursion_tail = pure_cons (Qrecursion_error, error_tail);
+  recursion_tail = Fcons (Qrecursion_error, error_tail);
   Fput (Qrecursion_error, Qerror_conditions, recursion_tail);
-  Fput (Qrecursion_error, Qerror_message, build_pure_c_string
-	("Excessive recursive calling error"));
+  Fput (Qrecursion_error, Qerror_message,
+	build_string ("Excessive recursive calling error"));
 
   PUT_ERROR (Qexcessive_lisp_nesting, recursion_tail,
 	     "Lisp nesting exceeds `max-lisp-eval-depth'");

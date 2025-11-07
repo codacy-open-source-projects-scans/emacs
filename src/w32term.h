@@ -1,5 +1,5 @@
 /* Definitions and headers for communication on the Microsoft Windows API.
-   Copyright (C) 1995, 2001-2024 Free Software Foundation, Inc.
+   Copyright (C) 1995, 2001-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -271,6 +271,7 @@ extern const char *w32_get_string_resource (void *v_rdb,
                                             const char *class);
 
 /* w32fns.c */
+extern frame_parm_handler w32_frame_parm_handlers[];
 extern void w32_default_font_parameter (struct frame* f, Lisp_Object parms);
 extern Lisp_Object w32_process_dnd_data (int format, void *pDataObj);
 

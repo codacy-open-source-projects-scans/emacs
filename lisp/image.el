@@ -1,6 +1,6 @@
 ;;; image.el --- image API  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: multimedia
@@ -157,6 +157,11 @@ program (like ImageMagick \"convert\", GraphicsMagick \"gm\"
 or \"ffmpeg\") is installed."
   :type 'boolean
   :version "27.1")
+
+(defcustom image-recompute-map-p t
+  "Recompute image map when scaling, rotating, or flipping an image."
+  :type 'boolean
+  :version "30.1")
 
 (define-error 'unknown-image-type "Unknown image type")
 
@@ -412,12 +417,12 @@ be determined."
 	    ;; If nothing seems to be supported, return first type that matched.
 	    (or first (setq first type))))))))
 
- ;;;###autoload
+;;;###autoload
 (defun image-supported-file-p (file)
-  "Say whether Emacs has native support for displaying TYPE.
-The value is a symbol specifying the image type, or nil if type
-cannot be determined (or if Emacs doesn't have built-in support
-for the image type)."
+  "Return non-nil if Emacs can display the specified image FILE.
+The returned value is a symbol specifying the image type of FILE,
+or nil if Emacs cannot display that image type or if the type
+cannot be determined."
   (let ((case-fold-search t)
         type)
     (catch 'found
@@ -608,6 +613,7 @@ properties specific to certain image types."
   (declare (gv-setter image--set-property))
   (plist-get (cdr image) property))
 
+(defvar image-scaling-factor)
 (defun image-compute-scaling-factor (&optional scaling)
   "Compute the scaling factor based on SCALING.
 If a number, use that.  If it's `auto', compute the factor.
@@ -1168,14 +1174,14 @@ has no effect."
   :version "24.3")
 
 (defcustom imagemagick-enabled-types
-  '(3FR ARW AVS BMP BMP2 BMP3 CAL CALS CMYK CMYKA CR2 CRW
+  '(3FR ARW AVIF AVS BMP BMP2 BMP3 CAL CALS CMYK CMYKA CR2 CRW
     CUR CUT DCM DCR DCX DDS DJVU DNG DPX EXR FAX FITS GBR GIF
     GIF87 GRB HRZ ICB ICO ICON J2C JNG JP2 JPC JPEG JPG JPX K25
     KDC MIFF MNG MRW MSL MSVG MTV NEF ORF OTB PBM PCD PCDS PCL
     PCT PCX PDB PEF PGM PICT PIX PJPEG PNG PNG24 PNG32 PNG8 PNM
     PPM PSD PTIF PWP RAF RAS RBG RGB RGBA RGBO RLA RLE SCR SCT
-    SFW SGI SR2 SRF SUN SVG SVGZ TGA TIFF TIFF64 TILE TIM TTF
-    UYVY VDA VICAR VID VIFF VST WBMP WPG X3F XBM XC XCF XPM XV
+    SFW SGI SIX SR2 SRF SUN SVG SVGZ TGA TIFF TIFF64 TILE TIM TTF
+    UYVY VDA VICAR VID VIFF VST WBMP WEBP WPG X3F XBM XC XCF XPM XV
     XWD YCbCr YCbCrA YUV)
   "List of ImageMagick types to treat as images.
 Each list element should be a string or symbol, representing one
@@ -1415,11 +1421,6 @@ is recomputed to fit the newly transformed image."
 (define-obsolete-function-alias 'image-refresh #'image-flush "29.1")
 
 ;;; Map transformation
-
-(defcustom image-recompute-map-p t
-  "Recompute image map when scaling, rotating, or flipping an image."
-  :type 'boolean
-  :version "30.1")
 
 (defsubst image--compute-rotation (image)
   "Return the current rotation of IMAGE, or 0 if no rotation.

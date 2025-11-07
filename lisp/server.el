@@ -1,6 +1,6 @@
 ;;; server.el --- Lisp code for GNU Emacs running as server process -*- lexical-binding: t -*-
 
-;; Copyright (C) 1986-1987, 1992, 1994-2024 Free Software Foundation,
+;; Copyright (C) 1986-1987, 1992, 1994-2025 Free Software Foundation,
 ;; Inc.
 
 ;; Author: William Sommerfeld <wesommer@athena.mit.edu>
@@ -673,7 +673,7 @@ anyway."
                   (ignore-errors
                     (delete-directory (file-name-directory server-file))))))
             (signal 'server-running-external
-                    (list (format "There is an existing Emacs server, named %S"
+                    (list (format "The existing Emacs server, called \"%s\", could not be stopped."
                                   server-name))))
       ;; If this Emacs already had a server, clear out associated status.
       (while server-clients
@@ -725,16 +725,27 @@ the `server-process' variable."
           (when (server-stop)
             (message (if leave-dead "Stopped server" "Restarting server"))))
       (server-running-external
-       (display-warning
-        'server
-        (concat "Unable to start the Emacs server.\n"
-                (cadr err)
-                (substitute-command-keys
-                 (concat "\nTo start the server in this Emacs process, stop "
-                         "the existing server or call \\[server-force-delete] "
-                         "to forcibly disconnect it.")))
-        :warning)
-       (setq leave-dead t)))
+       (cond
+        ((not leave-dead)
+         (display-warning
+          'server
+          (concat "Unable to start the Emacs server.\n"
+                  (cadr err)
+                  (substitute-command-keys
+                   (concat "\nTo start the server in this Emacs session, stop "
+                           "the existing server or call \\[server-force-delete] "
+                           "to forcibly disconnect it.")))
+          :warning)
+         (setq leave-dead t))
+        (t
+         (display-warning
+          'server
+          (concat "Unable to stop the Emacs server.\n"
+                  (cadr err)
+                  (substitute-command-keys
+                   (concat "\n(Perhaps it was run from a different Emacs session?)\n"
+                           "You can try stopping the server forcibly by calling \\[server-force-delete].")))
+          :warning)))))
       ;; Now any previous server is properly stopped.
     (unless leave-dead
       (let ((server-file (server--file-name)))
@@ -1221,7 +1232,7 @@ The following commands are accepted by the client:
     (when prev
       (setq string (concat prev string))
       (process-put proc 'previous-string nil)))
-  (condition-case err
+  (condition-case-unless-debug err
       (progn
 	(server-add-client proc)
 	;; Send our pid
@@ -1256,8 +1267,10 @@ The following commands are accepted by the client:
 		args-left)
 	    ;; Remove this line from STRING.
 	    (setq string (substring string (match-end 0)))
-	    (setq args-left
-		  (mapcar #'server-unquote-arg (split-string request " " t)))
+	    (cl-assert (equal (substring request -1) " ")
+		       nil "emacsclient request did not end in SPC")
+	    (setq args-left (mapcar #'server-unquote-arg
+				    (nbutlast (split-string request " "))))
 	    (while args-left
               (pcase (pop args-left)
                 ;; -version CLIENT-VERSION: obsolete at birth.
@@ -1470,6 +1483,9 @@ Adding or removing strings from this variable while the Emacs
 server is processing a series of eval requests will affect what
 Emacs evaluates.
 
+This list includes empty strings if empty string arguments were passed
+when invoking emacsclient.
+
 See also `argv' for a similar variable which works for
 invocations of \"emacs\".")
 
@@ -1578,6 +1594,7 @@ LINE-COL should be a pair (LINE . COL)."
 
 (defun server-visit-files (files proc &optional nowait)
   "Find FILES and return a list of buffers created.
+If some file was deleted since last visited, offer to save its buffer.
 FILES is an alist whose elements are (FILENAME . FILEPOS)
 where FILEPOS can be nil or a pair (LINENUMBER . COLUMNNUMBER).
 PROC is the client that requested this operation.
@@ -1609,7 +1626,9 @@ so don't mark these buffers specially, just visit them normally."
             (cond ((file-exists-p filen)
                    (when (not (verify-visited-file-modtime obuf))
                      (revert-buffer t nil)))
-                  (t
+                  ;; Only ask the question if the file did exist at some
+                  ;; point, but was deleted since.
+                  ((listp (visited-file-modtime))
                    (when (y-or-n-p
                           (concat "File no longer exists: " filen
                                   ", write buffer to file? "))
@@ -2016,7 +2035,7 @@ This sets the variable `server-stop-automatically' (which see)."
 
 (defun server-unload-function ()
   "Unload the Server library."
-  (server-mode -1)
+  (ignore-errors (server-stop 'noframe))
   (substitute-key-definition 'server-edit nil ctl-x-map)
   (save-current-buffer
     (dolist (buffer (buffer-list))

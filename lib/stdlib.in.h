@@ -1,6 +1,6 @@
 /* A GNU-like <stdlib.h>.
 
-   Copyright (C) 1995, 2001-2004, 2006-2024 Free Software Foundation, Inc.
+   Copyright (C) 1995, 2001-2004, 2006-2025 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -62,11 +62,6 @@
 /* NetBSD 5.0 mis-defines NULL.  */
 #include <stddef.h>
 
-/* MirBSD 10 defines WEXITSTATUS in <sys/wait.h>, not in <stdlib.h>.  */
-#if @GNULIB_SYSTEM_POSIX@ && !defined WEXITSTATUS
-# include <sys/wait.h>
-#endif
-
 /* Solaris declares getloadavg() in <sys/loadavg.h>.  */
 #if (@GNULIB_GETLOADAVG@ || defined GNULIB_POSIXCHECK) && @HAVE_SYS_LOADAVG_H@
 /* OpenIndiana has a bug: <sys/time.h> must be included before
@@ -81,13 +76,6 @@
 #endif
 
 #if @GNULIB_RANDOM_R@
-
-/* OSF/1 5.1 declares 'struct random_data' in <random.h>, which is included
-   from <stdlib.h> if _REENTRANT is defined.  Include it whenever we need
-   'struct random_data'.  */
-# if @HAVE_RANDOM_H@
-#  include <random.h>
-# endif
 
 # include <stdint.h>
 
@@ -119,14 +107,14 @@ struct random_data
 # include <unistd.h>
 #endif
 
-#if ((@GNULIB_STRTOL@ && @REPLACE_STRTOL@) || (@GNULIB_STRTOLL@ && @REPLACE_STRTOLL@) || (@GNULIB_STRTOUL@ && @REPLACE_STRTOUL@) || (@GNULIB_STRTOULL@ && @REPLACE_STRTOULL@)) && defined __cplusplus && !defined GNULIB_NAMESPACE && defined __GNUG__ && !defined __clang__ && defined __sun
+#if ((@GNULIB_STRTOL@ && @REPLACE_STRTOL@) || (@GNULIB_STRTOLL@ && @REPLACE_STRTOLL@) || (@GNULIB_STRTOUL@ && @REPLACE_STRTOUL@) || (@GNULIB_STRTOULL@ && @REPLACE_STRTOULL@)) && defined __cplusplus && !defined GNULIB_NAMESPACE && defined __GNUG__ && !defined __clang__ && (defined __sun || defined _AIX)
 /* When strtol, strtoll, strtoul, or strtoull is going to be defined as a macro
    below, this may cause compilation errors later in the libstdc++ header files
    (that are part of GCC), such as:
      error: 'rpl_strtol' is not a member of 'std'
    To avoid this, include the relevant header files here, before these symbols
-   get defined as macros.  But do so only on Solaris 11 (where it is needed),
-   not on mingw (where it would cause other compilation errors).  */
+   get defined as macros.  But do so only on Solaris 11 and AIX (where it is
+   needed), not on mingw (where it would cause other compilation errors).  */
 # include <string>
 #endif
 
@@ -164,6 +152,18 @@ _GL_INLINE_HEADER_BEGIN
 #  define _GL_ATTRIBUTE_MALLOC __attribute__ ((__malloc__))
 # else
 #  define _GL_ATTRIBUTE_MALLOC
+# endif
+#endif
+
+/* _GL_ATTRIBUTE_NONNULL_IF_NONZERO (NP, NI) declares that the argument NP
+   (a pointer) must not be NULL if the argument NI (an integer) is != 0.  */
+/* Applies to: functions.  */
+#ifndef _GL_ATTRIBUTE_NONNULL_IF_NONZERO
+# if __GNUC__ >= 15 && !defined __clang__
+#  define _GL_ATTRIBUTE_NONNULL_IF_NONZERO(np, ni) \
+     __attribute__ ((__nonnull_if_nonzero__ (np, ni)))
+# else
+#  define _GL_ATTRIBUTE_NONNULL_IF_NONZERO(np, ni)
 # endif
 #endif
 
@@ -219,6 +219,18 @@ _GL_INLINE_HEADER_BEGIN
 #elif EXIT_FAILURE != 1
 # undef EXIT_FAILURE
 # define EXIT_FAILURE 1
+#endif
+
+
+/* Declarations for ISO C N3322.  */
+#if defined __GNUC__ && __GNUC__ >= 15 && !defined __clang__
+_GL_EXTERN_C void *bsearch (const void *__key,
+                            const void *__base, size_t __nmemb, size_t __size,
+                            int (*__compare) (const void *, const void *))
+  _GL_ATTRIBUTE_NONNULL_IF_NONZERO (2, 3) _GL_ARG_NONNULL ((5));
+_GL_EXTERN_C void qsort (void *__base, size_t __nmemb, size_t __size,
+                         int (*__compare) (const void *, const void *))
+  _GL_ATTRIBUTE_NONNULL_IF_NONZERO (1, 2) _GL_ARG_NONNULL ((4));
 #endif
 
 
@@ -746,15 +758,20 @@ _GL_WARN_ON_USE (malloc, "malloc is not POSIX compliant everywhere - "
 # endif
 #endif
 
-/* Return maximum number of bytes of a multibyte character.  */
+/* Return maximum number of bytes in a multibyte character in the
+   current locale.  */
 #if @REPLACE_MB_CUR_MAX@
 # if !GNULIB_defined_MB_CUR_MAX
-_GL_STDLIB_INLINE int
+_GL_STDLIB_INLINE size_t
 gl_MB_CUR_MAX (void)
 {
+#  if 0 < @REPLACE_MB_CUR_MAX@
+  return @REPLACE_MB_CUR_MAX@;
+#  else
   /* Turn the value 3 to the value 4, as needed for the UTF-8 encoding.  */
   int gl_mb_cur_max = MB_CUR_MAX;
   return gl_mb_cur_max == 3 ? 4 : gl_mb_cur_max;
+#  endif
 }
 #  undef MB_CUR_MAX
 #  define MB_CUR_MAX gl_MB_CUR_MAX ()
@@ -1176,7 +1193,8 @@ typedef int (*_gl_qsort_r_compar_fn) (void const *, void const *, void *);
 _GL_FUNCDECL_RPL (qsort_r, void, (void *base, size_t nmemb, size_t size,
                                   _gl_qsort_r_compar_fn compare,
                                   void *arg),
-                                 _GL_ARG_NONNULL ((1, 4)));
+                                 _GL_ATTRIBUTE_NONNULL_IF_NONZERO (1, 2)
+                                 _GL_ARG_NONNULL ((4)));
 _GL_CXXALIAS_RPL (qsort_r, void, (void *base, size_t nmemb, size_t size,
                                   _gl_qsort_r_compar_fn compare,
                                   void *arg));
@@ -1185,7 +1203,8 @@ _GL_CXXALIAS_RPL (qsort_r, void, (void *base, size_t nmemb, size_t size,
 _GL_FUNCDECL_SYS (qsort_r, void, (void *base, size_t nmemb, size_t size,
                                   _gl_qsort_r_compar_fn compare,
                                   void *arg),
-                                 _GL_ARG_NONNULL ((1, 4)));
+                                 _GL_ATTRIBUTE_NONNULL_IF_NONZERO (1, 2)
+                                 _GL_ARG_NONNULL ((4)));
 #  endif
 _GL_CXXALIAS_SYS (qsort_r, void, (void *base, size_t nmemb, size_t size,
                                   _gl_qsort_r_compar_fn compare,
@@ -1467,11 +1486,17 @@ _GL_WARN_ON_USE (setstate_r, "setstate_r is unportable - "
 # if @REPLACE_REALLOC_FOR_REALLOC_POSIX@
 #  if @REPLACE_REALLOC_FOR_REALLOC_POSIX@ == 2
 #   define _GL_INLINE_RPL_REALLOC 1
+#   ifdef __cplusplus
+extern "C" {
+#   endif
 _GL_REALLOC_INLINE void *
 rpl_realloc (void *ptr, size_t size)
 {
   return realloc (ptr, size ? size : 1);
 }
+#   ifdef __cplusplus
+}
+#   endif
 #  endif
 #  if !((defined __cplusplus && defined GNULIB_NAMESPACE) \
         || _GL_USE_STDLIB_ALLOC)
@@ -1988,6 +2013,18 @@ _GL_CXXALIASWARN (wctomb);
 
 
 _GL_INLINE_HEADER_END
+
+
+/* Includes that provide only macros that don't need to be overridden.
+   (Includes that are needed for type definitions and function declarations
+   have their place above, before the function overrides.)  */
+
+/* MirBSD 10 defines WEXITSTATUS in <sys/wait.h>, not in <stdlib.h>.
+   glibc 2.41 defines WCOREDUMP in <sys/wait.h>, not in <stdlib.h>.  */
+#if @GNULIB_SYSTEM_POSIX@ && !(defined WEXITSTATUS && defined WCOREDUMP)
+# include <sys/wait.h>
+#endif
+
 
 #endif /* _@GUARD_PREFIX@_STDLIB_H */
 #endif /* _@GUARD_PREFIX@_STDLIB_H */

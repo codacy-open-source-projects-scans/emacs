@@ -1,6 +1,6 @@
 ;;; comp-test-funcs.el --- compilation unit tested by comp-tests.el -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 
@@ -260,6 +260,8 @@
 
 (defun comp-tests-trampoline-removal-f ()
   (make-hash-table))
+
+(define-error 'foo "foo")
 
 (defun comp-tests-signal-f ()
   (signal 'foo t))
@@ -578,6 +580,15 @@
     (comp-test-73270-child2 'child2)
     (comp-test-73270-child3 'child3)
     (comp-test-73270-child4 'child4)))
+
+(defun comp-test-76573-1-f ()
+  (record 'undeclared-type))
+
+(defun comp-test-78606-1-f (x)
+  (and (= x 1)
+       (if (eql x 1)
+           1
+         x)))
 
 
 ;;;;;;;;;;;;;;;;;;;;

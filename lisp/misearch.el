@@ -1,6 +1,6 @@
 ;;; misearch.el --- isearch extensions for multi-buffer search  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
 
 ;; Author: Juri Linkov <juri@jurta.org>
 ;; Keywords: matching
@@ -327,7 +327,7 @@ Every next/previous file in the defined sequence is visited by
 				      default-directory
 				      buffer-file-name)))
 	 (file nil))
-    (while (not (string-equal
+    (while (not (file-equal-p
 		 (setq file (read-file-name
 			     "Next file to search (RET to end): "
 			     default-directory

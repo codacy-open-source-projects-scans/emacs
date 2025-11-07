@@ -1,6 +1,6 @@
 ;;; org-agenda.el --- Dynamic task and appointment lists for Org  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Keywords: outlines, hypermedia, calendar, text
@@ -4603,10 +4603,10 @@ START-DAY is an absolute time value."
 	((eq span 'fortnight) 14)
 	((eq span 'month)
 	 (let ((date (calendar-gregorian-from-absolute start-day)))
-	   (calendar-last-day-of-month (car date) (cl-caddr date))))
+           (calendar-last-day-of-month (car date) (caddr date))))
 	((eq span 'year)
 	 (let ((date (calendar-gregorian-from-absolute start-day)))
-	   (if (calendar-leap-year-p (cl-caddr date)) 366 365)))))
+           (if (calendar-leap-year-p (caddr date)) 366 365)))))
 
 (defun org-agenda-span-name (span)
   "Return a SPAN name."
@@ -8186,7 +8186,7 @@ FLAG specifies the type of completion operation to perform.  This
 function is passed as a collection function to `completing-read',
 which see."
   (let ((completion-ignore-case t)	;tags are case-sensitive
-	(confirm (lambda (x) (stringp x)))
+        (confirm #'stringp)
 	(prefix "")
 	(operator "")
 	table

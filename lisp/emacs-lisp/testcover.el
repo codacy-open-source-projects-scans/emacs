@@ -1,6 +1,6 @@
 ;;; testcover.el --- Visual code-coverage tool  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
 
 ;; Author: Jonathan Yavner <jyavner@member.fsf.org>
 ;; Keywords: lisp utility
@@ -296,7 +296,7 @@ iteratively copies its cdr.  When VECP is non-nil, copy
 vectors as well as conses."
   (if (and (atom obj) (or (not vecp) (not (vectorp obj))))
       obj
-    (let ((copy (gethash obj hash-table nil)))
+    (let ((copy (gethash obj hash-table)))
       (unless copy
         (cond
          ((consp obj)
@@ -315,7 +315,7 @@ vectors as well as conses."
                           (testcover--copy-object1 rest vecp hash-table))
                     nil)
                    ((gethash rest hash-table nil)
-                    (setf (cdr current) (gethash rest hash-table nil))
+                    (setf (cdr current) (gethash rest hash-table))
                     nil)
                    (t (setq current
                             (setf (cdr current) (cons nil nil)))))))))

@@ -1,6 +1,6 @@
 ### @configure_input@
 
-# Copyright (C) 2000-2024 Free Software Foundation, Inc.
+# Copyright (C) 2000-2025 Free Software Foundation, Inc.
 
 # This file is part of GNU Emacs.
 
@@ -212,7 +212,8 @@ autoloads-force:
 	$(MAKE) autoloads
 
 ldefs-boot.el: autoloads-force
-	sed '/^;; Local Variables:/a ;; no-byte-compile: t'\
+	sed '/^;; Local Variables:/a\
+;; no-byte-compile: t'\
 		< $(lisp)/loaddefs.el > $(lisp)/ldefs-boot.el
 
 # This is required by the bootstrap-emacs target in ../src/Makefile, so

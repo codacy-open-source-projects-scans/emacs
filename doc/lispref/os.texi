@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2024 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node System Interface
@@ -94,6 +94,11 @@ if requested by environment variables such as @env{LANG}.
 It does some basic parsing of the command-line arguments.
 
 @item
+It loads the library @file{site-start}, if it exists.  This is not
+done if the options @samp{-Q} or @samp{--no-site-file} were specified.
+@cindex @file{site-start.el}
+
+@item
 It loads your early init file (@pxref{Early Init File,,, emacs, The
 GNU Emacs Manual}).  This is not done if the options @samp{-q},
 @samp{-Q}, or @samp{--batch} were specified.  If the @samp{-u} option
@@ -141,7 +146,7 @@ the tool bar even if the current frame is not a graphical one, since a
 graphical frame may be created later on.
 
 @item
-It use @code{custom-reevaluate-setting} to re-initialize the members
+It uses @code{custom-reevaluate-setting} to re-initialize the members
 of the list @code{custom-delayed-init-variables}.  These are any
 pre-loaded user options whose default value depends on the run-time,
 rather than build-time, context.
@@ -149,11 +154,6 @@ rather than build-time, context.
 
 @c @item
 @c It registers the colors available for tty frames.
-
-@item
-It loads the library @file{site-start}, if it exists.  This is not
-done if the options @samp{-Q} or @samp{--no-site-file} were specified.
-@cindex @file{site-start.el}
 
 @item
 It loads your init file (@pxref{Init File}).  This is not done if the
@@ -432,9 +432,9 @@ loading of this file with the option @samp{--no-site-file}.
 
 @defopt site-run-file
 This variable specifies the site-customization file to load before the
-user's init file.  Its normal value is @code{"site-start"}.  The only
-way you can change it with real effect is to do so before dumping
-Emacs.
+user's early init file and regular init file.  Its normal value is
+@code{"site-start"}.  The only way you can change it with real effect is
+to do so before dumping Emacs.
 @c So why even mention it here.  I imagine it is almost never changed.
 @end defopt
 
@@ -590,10 +590,10 @@ displays the startup messages.
 The value of this variable is @code{t} once the command line has been
 processed.
 
-If you redump Emacs by calling @code{dump-emacs} (@pxref{Building
-Emacs}), you may wish to set this variable to @code{nil} first in
-order to cause the new dumped Emacs to process its new command-line
-arguments.
+If you redump Emacs by calling @code{dump-emacs-portable}
+(@pxref{Building Emacs}), you may wish to set this variable to
+@code{nil} first in order to cause the new dumped Emacs to process its
+new command-line arguments.
 @end defvar
 
 @defvar command-switch-alist
@@ -1953,14 +1953,18 @@ This is a synonym for @samp{%H:%M:%S}.
 This stands for the numeric day of week (1--7).  Monday is day 1.
 @item %U
 This stands for the week of the year (01--52), assuming that weeks
-start on Sunday.
+start on Sunday.  If January 1 is not a Sunday, the first partial week
+is week zero.
 @item %V
-This stands for the week of the year according to ISO 8601.
+This stands for the week of the year according to ISO 8601.  Note that,
+unlike @samp{%U} and @samp{%W}, the week according to ISO 8601 does
+@emph{not} roll over to 1 on January 1, but keeps its last number.
 @item %w
 This stands for the numeric day of week (0--6).  Sunday is day 0.
 @item %W
-This stands for the week of the year (01--52), assuming that weeks
-start on Monday.
+This stands for the week of the year (01--52), assuming that weeks start
+on Monday.  If January 1 is not a Monday, the first partial week is week
+zero.
 @item %x
 This has a locale-specific meaning.  In the default locale (named
 @samp{C}), it is equivalent to @samp{%D}.
@@ -2202,6 +2206,28 @@ February 2020 has 29 days.
 @defun date-ordinal-to-time year ordinal
 Return the date of @var{ordinal} in @var{year} as a decoded time
 structure.  For instance, the 120th day in 2004 is April 29th.
+@end defun
+
+@defun seconds-to-string delay &optional readable abbrev precision
+Return a string describing a given @var{delay} (in seconds).  By
+default, this function formats the returned string as a floating-point
+number in units selected according to the value of @var{delay}.  For
+example, a delay of 9861.5 seconds yields @samp{2.74h}, since the value
+of @var{delay} is longer than 1 hour, but shorter than 1 day.  The
+output formatting can be further controlled by the optional arguments,
+if optional argument @var{readable} is non-@code{nil}.  If
+@var{readable}'s value is @code{expanded}, the returned string will
+describe @var{delay} using two units; for example, a delay of 9861.5
+seconds with @var{readable} set to the symbol @code{expanded} returns
+@samp{2 hours 44 minutes}, but if @var{readable} is @code{t}, the
+function returns @samp{3 hours}.  Optional argument @var{abbrev}, if
+non-@code{nil}, means to abbreviate the units: use @samp{h} instead of
+@samp{hours}, @samp{m} instead of @samp{minutes}, etc.  If
+@var{precision} is a whole integer number, the function rounds the value
+of the smallest unit it produces to that many digits after the decimal
+point; thus, 9861.5 with @var{precision} set to 3 yields @samp{2.739
+hours}.  If @var{precision} is a non-negative float smaller than 1, the
+function rounds to that value.
 @end defun
 
 @node Timers
@@ -2496,8 +2522,7 @@ idleness.  Here's an example:
 @cindex terminal input
 
   This section describes functions and variables for recording or
-manipulating terminal input.  See @ref{Display}, for related
-functions.
+manipulating terminal input.  @xref{Display}, for related functions.
 
 @menu
 * Input Modes::         Options for how input is processed.
@@ -3230,9 +3255,10 @@ Note that versions of Windows before W2K support only @code{:icon} and
 @code{:tip}.  The other parameters can be passed, but they will be
 ignored on those old systems.
 
-There can be at most one active notification at any given time.  An
-active notification must be removed by calling
-@code{w32-notification-close} before a new one can be shown.
+There can be at most one active notification at any given time for each
+Emacs frame.  An active notification must be removed by calling
+@code{w32-notification-close} before a new one can be shown for the same
+frame.
 @end defun
 
 To remove the notification and its icon from the taskbar, use the
@@ -3240,7 +3266,12 @@ following function:
 
 @defun w32-notification-close id
 This function removes the tray notification given by its unique
-@var{id}.
+@var{id}.  The same Emacs frame which was the selected frame when the
+notification was created must be selected when removing the
+notification.  A Lisp program which shows notifications must track which
+frame corresponds to which notification @var{id}, and select that frame
+when removing the notification.  (When a frame is deleted, a
+notification it created, if any, will be removed by MS-Windows.)
 @end defun
 
 @cindex desktop notifications, Haiku

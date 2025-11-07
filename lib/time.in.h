@@ -1,6 +1,6 @@
 /* A more-standard <time.h>.
 
-   Copyright (C) 2007-2024 Free Software Foundation, Inc.
+   Copyright (C) 2007-2025 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -186,7 +186,9 @@ _GL_FUNCDECL_SYS (timespec_getres, int, (struct timespec *ts, int base),
 #   endif
 _GL_CXXALIAS_SYS (timespec_getres, int, (struct timespec *ts, int base));
 #  endif
+# if __GLIBC__ >= 2
 _GL_CXXALIASWARN (timespec_getres);
+# endif
 # elif defined GNULIB_POSIXCHECK
 #  undef timespec_getres
 #  if HAVE_RAW_DECL_TIMESPEC_GETRES
@@ -521,11 +523,18 @@ _GL_CXXALIAS_SYS (tzalloc, timezone_t, (char const *__name));
 #  endif
 
 /* tzfree (tz)
-   Frees a time zone object.
+   Free a time zone object, preserving errno.
    The argument must have been returned by tzalloc().  */
 #  if !@HAVE_TZALLOC@
 _GL_FUNCDECL_SYS (tzfree, void, (timezone_t __tz), );
 _GL_CXXALIAS_SYS (tzfree, void, (timezone_t __tz));
+#  else
+#   if !(defined __cplusplus && defined GNULIB_NAMESPACE)
+#    undef tzfree
+#    define tzfree rpl_tzfree
+#   endif
+_GL_FUNCDECL_RPL (tzfree, void, (timezone_t __tz), );
+_GL_CXXALIAS_RPL (tzfree, void, (timezone_t __tz));
 #  endif
 
 /* localtime_rz (tz, &t, &result)

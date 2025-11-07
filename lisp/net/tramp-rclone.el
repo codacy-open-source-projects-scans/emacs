@@ -1,6 +1,6 @@
 ;;; tramp-rclone.el --- Tramp access functions to cloud storages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2018-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2025 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -412,11 +412,11 @@ connection if a previous connection has died for some reason."
 	   (tramp-get-method-parameter vec 'tramp-mount-args))
 	  (while (not (file-exists-p (tramp-make-tramp-file-name vec 'noloc)))
 	    (tramp-cleanup-connection vec 'keep-debug 'keep-password))
+	  (add-to-list 'tramp-fuse-mount-points (tramp-file-name-unify vec)))
 
-	  ;; Mark it as connected.
-	  (add-to-list 'tramp-fuse-mount-points (tramp-file-name-unify vec))
-	  (tramp-set-connection-property
-	   (tramp-get-connection-process vec) "connected" t))))
+	;; Mark it as connected.
+	(tramp-set-connection-property
+	 (tramp-get-connection-process vec) "connected" t)))
 
     ;; In `tramp-check-cached-permissions', the connection properties
     ;; "{uid,gid}-{integer,string}" are used.  We set them to proper values.

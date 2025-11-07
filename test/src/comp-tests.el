@@ -1,6 +1,6 @@
 ;;; comp-tests.el --- unit tests for src/comp.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2025 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <acorallo@gnu.org>
 
@@ -146,7 +146,7 @@ Check that the resulting binaries do not differ."
   (should (= (comp-tests-aref-aset-f) 100)))
 
 (comp-deftest symbol-value ()
-  "Testing aref and aset."
+  "Testing `symbol-value'."
   (should (= (comp-tests-symbol-value-f) 3)))
 
 (comp-deftest concat ()
@@ -260,8 +260,8 @@ Check that the resulting binaries do not differ."
 
 (comp-deftest setcarcdr ()
   "Testing setcar setcdr."
-  (should (equal (comp-tests-setcar-f '(10 . 10) 3) '(3 . 10)))
-  (should (equal (comp-tests-setcdr-f '(10 . 10) 3) '(10 . 3)))
+  (should (equal (comp-tests-setcar-f (cons 10 10) 3) '(3 . 10)))
+  (should (equal (comp-tests-setcdr-f (cons 10 10) 3) '(10 . 3)))
   (should-error (comp-tests-setcar-f 3 10)
                 :type 'wrong-type-argument)
   (should-error (comp-tests-setcdr-f 3 10)
@@ -329,7 +329,7 @@ Check that the resulting binaries do not differ."
     (should (= (funcall f 3) 4))))
 
 (comp-deftest lambda-return2 ()
-  "Check a nested lambda function gets native compiled."
+  "Check a nested lambda function gets natively compiled."
   (let ((f (comp-tests-lambda-return-f2)))
     (should (native-comp-function-p f))
     (let ((f2 (funcall f)))
@@ -595,6 +595,11 @@ dedicated byte-op code."
 (comp-deftest comp-test-73270-1 ()
   "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-09/msg00794.html>"
   (should (eq (comp-test-73270-1-f (make-comp-test-73270-child4)) 'child4)))
+
+(comp-deftest comp-test-78606-1 ()
+  "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2025-05/msg01270.html>"
+  (should (let ((x 1.0))
+            (eq (comp-test-78606-1-f x) x))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;
@@ -1512,7 +1517,12 @@ Return a list of results."
          (if (functionp x)
              (error "")
            x))
-       '(not function))))
+       '(not function))
+      ;; 81
+      ((defun comp-tests-ret-type-spec-f (x)
+         (print (comp-foo-p x))
+         (comp-foo-p x))
+       'boolean)))
 
   (defun comp-tests-define-type-spec-test (number x)
     `(comp-deftest ,(intern (format "ret-type-spec-%d" number)) ()

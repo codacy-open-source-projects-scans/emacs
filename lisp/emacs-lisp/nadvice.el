@@ -1,6 +1,6 @@
 ;;; nadvice.el --- Light-weight advice primitives for Elisp functions  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2025 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: extensions, lisp, tools
@@ -151,7 +151,8 @@ DOC is a string where \"FUNCTION\" and \"OLDFUN\" are expected.")
                         ;; definition is loaded]", bug#21299
                         (if (stringp arglist) t
                           (help--make-usage-docstring function arglist)))
-                    (setq origdoc (cdr usage)) (car usage)))
+                    (setq origdoc (cdr usage))
+                    (car usage)))
       (help-add-fundoc-usage
        (with-temp-buffer
          (when before
@@ -319,7 +320,10 @@ These functions act like the t special value in buffer-local hooks.")
           ((symbolp place)              `(default-value ',place))
           (t place))))
 
-(defun nadvice--make-docstring (sym)
+(defun advice--make-nadvice-docstring (sym)
+  "Make docstring for a nadvice function.
+Modifies the function's docstring by replacing \"<<>>\" with the
+description of the possible HOWs."
   (let* ((main (documentation (symbol-function sym) 'raw))
          (ud (help-split-fundoc main 'pcase))
          (doc (or (cdr ud) main))
@@ -340,7 +344,7 @@ These functions act like the t special value in buffer-local hooks.")
     (if ud (help-add-fundoc-usage combined-doc (car ud)) combined-doc)))
 
 (put 'add-function 'function-documentation
-     '(nadvice--make-docstring 'add-function))
+     '(advice--make-nadvice-docstring 'add-function))
 
 ;;;###autoload
 (defmacro add-function (how place function &optional props)
@@ -498,7 +502,7 @@ of the piece of advice."
       (funcall fsetfun symbol newdef))))
 
 (put 'advice-add 'function-documentation
-     '(nadvice--make-docstring 'advice-add))
+     '(advice--make-nadvice-docstring 'advice-add))
 
 ;;;###autoload
 (defun advice-add (symbol how function &optional props)

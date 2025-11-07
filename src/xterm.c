@@ -1,6 +1,6 @@
 /* X Communication module for terminals which understand the X protocol.
 
-Copyright (C) 1989, 1993-2024 Free Software Foundation, Inc.
+Copyright (C) 1989, 1993-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -4121,10 +4121,10 @@ x_dnd_send_unsupported_drop (struct x_display_info *dpyinfo, Window target_windo
   x_dnd_unsupported_drop_time = before;
   x_dnd_unsupported_drop_window = target_window;
   x_dnd_unsupported_drop_data
-    = listn (5, assq_no_quit (QXdndSelection,
-			      dpyinfo->terminal->Vselection_alist),
-	     targets, arg, make_fixnum (root_x),
-	     make_fixnum (root_y));
+    = list (assq_no_quit (QXdndSelection,
+			  dpyinfo->terminal->Vselection_alist),
+	    targets, arg, make_fixnum (root_x),
+	    make_fixnum (root_y));
 
   x_dnd_waiting_for_finish = true;
   x_dnd_finish_display = dpyinfo->display;
@@ -5209,10 +5209,6 @@ x_update_opaque_region (struct frame *f, XEvent *configure)
 				   (configure
 				    ? configure->xconfigure.height
 				    : FRAME_PIXEL_HEIGHT (f))};
-#ifdef HAVE_GTK3
-  GObjectClass *object_class;
-  GtkWidgetClass *class;
-#endif
 
   if (!FRAME_DISPLAY_INFO (f)->alpha_bits)
     return;
@@ -5240,8 +5236,9 @@ x_update_opaque_region (struct frame *f, XEvent *configure)
 	 unknown reason.  (bug#55779) */
       if (!FRAME_PARENT_FRAME (f))
 	{
-	  object_class = G_OBJECT_GET_CLASS (FRAME_GTK_OUTER_WIDGET (f));
-	  class = GTK_WIDGET_CLASS (object_class);
+	  GObjectClass *object_class
+	    = G_OBJECT_GET_CLASS (FRAME_GTK_OUTER_WIDGET (f));
+	  GtkWidgetClass *class = GTK_WIDGET_CLASS (object_class);
 
 	  if (class->style_updated)
 	    class->style_updated (FRAME_GTK_OUTER_WIDGET (f));
@@ -6369,7 +6366,6 @@ x_cr_export_frames (Lisp_Object frames, cairo_surface_type_t surface_type)
   Lisp_Object acc = Qnil;
   specpdl_ref count = SPECPDL_INDEX ();
 
-  specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (31);
 
   f = XFRAME (XCAR (frames));
@@ -7071,22 +7067,15 @@ x_sync_get_monotonic_time (struct x_display_info *dpyinfo,
   return ckd_sub (&t, timestamp, dpyinfo->server_time_offset) ? 0 : t;
 }
 
-# ifndef CLOCK_MONOTONIC
-#  define CLOCK_MONOTONIC CLOCK_REALTIME
-# endif
-
 /* Return the current monotonic time in the same format as a
    high-resolution server timestamp, or 0 if not available.  */
 
 static uint_fast64_t
 x_sync_current_monotonic_time (void)
 {
-  struct timespec time;
+  struct timespec time = monotonic_coarse_timespec ();
   uint_fast64_t t;
-  return (((clock_gettime (CLOCK_MONOTONIC, &time) != 0
-	    && (CLOCK_MONOTONIC == CLOCK_REALTIME
-		|| clock_gettime (CLOCK_REALTIME, &time) != 0))
-	   || ckd_mul (&t, time.tv_sec, 1000000)
+  return ((ckd_mul (&t, time.tv_sec, 1000000)
 	   || ckd_add (&t, t, time.tv_nsec / 1000))
 	  ? 0 : t);
 }
@@ -7497,13 +7486,16 @@ x_draw_window_divider (struct window *w, int x0, int x1, int y0, int y1)
     {
       XSetForeground (display, f->output_data.x->normal_gc, color_first);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x0, y0, 1, y1 - y0, false);
+			x0, y0, 1, y1 - y0,
+                        f->borders_respect_alpha_background);
       XSetForeground (display, f->output_data.x->normal_gc, color);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x0 + 1, y0, x1 - x0 - 2, y1 - y0, false);
+			x0 + 1, y0, x1 - x0 - 2, y1 - y0,
+                        f->borders_respect_alpha_background);
       XSetForeground (display, f->output_data.x->normal_gc, color_last);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x1 - 1, y0, 1, y1 - y0, false);
+			x1 - 1, y0, 1, y1 - y0,
+                        f->borders_respect_alpha_background);
     }
   else if ((x1 - x0 > y1 - y0) && (y1 - y0 >= 3))
     /* A horizontal divider, at least three pixels high: Draw first and
@@ -7511,13 +7503,16 @@ x_draw_window_divider (struct window *w, int x0, int x1, int y0, int y1)
     {
       XSetForeground (display, f->output_data.x->normal_gc, color_first);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x0, y0, x1 - x0, 1, false);
+			x0, y0, x1 - x0, 1,
+                        f->borders_respect_alpha_background);
       XSetForeground (display, f->output_data.x->normal_gc, color);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x0, y0 + 1, x1 - x0, y1 - y0 - 2, false);
+			x0, y0 + 1, x1 - x0, y1 - y0 - 2,
+                        f->borders_respect_alpha_background);
       XSetForeground (display, f->output_data.x->normal_gc, color_last);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x0, y1 - 1, x1 - x0, 1, false);
+			x0, y1 - 1, x1 - x0, 1,
+                        f->borders_respect_alpha_background);
     }
   else
     {
@@ -7525,7 +7520,8 @@ x_draw_window_divider (struct window *w, int x0, int x1, int y0, int y1)
        differently.  */
       XSetForeground (display, f->output_data.x->normal_gc, color);
       x_fill_rectangle (f, f->output_data.x->normal_gc,
-			x0, y0, x1 - x0, y1 - y0, false);
+			x0, y0, x1 - x0, y1 - y0,
+                        f->borders_respect_alpha_background);
     }
 }
 
@@ -7636,12 +7632,6 @@ x_update_end (struct frame *f)
 static void
 XTframe_up_to_date (struct frame *f)
 {
-#if defined HAVE_XSYNC && defined HAVE_GTK3
-  GtkWidget *widget;
-  GdkWindow *window;
-  GdkFrameClock *clock;
-#endif
-
   eassert (FRAME_X_P (f));
   block_input ();
   FRAME_MOUSE_UPDATE (f);
@@ -7668,10 +7658,10 @@ XTframe_up_to_date (struct frame *f)
 #else
   if (FRAME_X_OUTPUT (f)->xg_sync_end_pending_p)
     {
-      widget = FRAME_GTK_OUTER_WIDGET (f);
-      window = gtk_widget_get_window (widget);
+      GtkWidget *widget = FRAME_GTK_OUTER_WIDGET (f);
+      GdkWindow *window = gtk_widget_get_window (widget);
       eassert (window);
-      clock = gdk_window_get_frame_clock (window);
+      GdkFrameClock *clock = gdk_window_get_frame_clock (window);
       eassert (clock);
 
       gdk_frame_clock_request_phase (clock,
@@ -7732,11 +7722,15 @@ x_clear_under_internal_border (struct frame *f)
 	  GC gc = f->output_data.x->normal_gc;
 
 	  XSetForeground (display, gc, color);
-	  x_fill_rectangle (f, gc, 0, margin, width, border, false);
-	  x_fill_rectangle (f, gc, 0, 0, border, height, false);
-	  x_fill_rectangle (f, gc, width - border, 0, border, height, false);
+	  x_fill_rectangle (f, gc, 0, margin, width, border,
+                            f->borders_respect_alpha_background);
+	  x_fill_rectangle (f, gc, 0, 0, border, height,
+                            f->borders_respect_alpha_background);
+	  x_fill_rectangle (f, gc, width - border, 0, border, height,
+                            f->borders_respect_alpha_background);
 	  x_fill_rectangle (f, gc, 0, height - bottom_margin - border,
-			    width, border, false);
+			    width, border,
+                            f->borders_respect_alpha_background);
 	  XSetForeground (display, gc, FRAME_FOREGROUND_PIXEL (f));
 	}
       else
@@ -11982,11 +11976,9 @@ x_new_focus_frame (struct x_display_info *dpyinfo, struct frame *frame)
   struct frame *old_focus = dpyinfo->x_focus_frame;
 #if defined USE_GTK && !defined HAVE_GTK3 && defined HAVE_XINPUT2
   XIEventMask mask;
-  ptrdiff_t l;
-
   if (dpyinfo->supports_xi2)
     {
-      l = XIMaskLen (XI_LASTEVENT);
+      ptrdiff_t l = XIMaskLen (XI_LASTEVENT);
       mask.mask = alloca (l);
       mask.mask_len = l;
       memset (mask.mask, 0, l);
@@ -13096,7 +13088,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 
 		  ref = SPECPDL_INDEX ();
 		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
-		  call2 (Vx_dnd_movement_function, frame_object,
+		  calln (Vx_dnd_movement_function, frame_object,
 			 Fposn_at_x_y (x, y, frame_object, Qnil));
 		  x_dnd_unwind_flag = false;
 		  unbind_to (ref, Qnil);
@@ -13130,7 +13122,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 
 		  ref = SPECPDL_INDEX ();
 		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
-		  call4 (Vx_dnd_wheel_function,
+		  calln (Vx_dnd_wheel_function,
 			 Fposn_at_x_y (x, y, frame_object, Qnil),
 			 make_fixnum (x_dnd_wheel_button),
 			 make_uint (x_dnd_wheel_state),
@@ -13199,7 +13191,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
 
 	      if (!NILP (Vx_dnd_unsupported_drop_function))
-		val = call8 (Vx_dnd_unsupported_drop_function,
+		val = calln (Vx_dnd_unsupported_drop_function,
 			     XCAR (XCDR (x_dnd_unsupported_drop_data)),
 			     Fnth (make_fixnum (3), x_dnd_unsupported_drop_data),
 			     Fnth (make_fixnum (4), x_dnd_unsupported_drop_data),
@@ -13946,12 +13938,12 @@ xi_disable_devices (struct x_display_info *dpyinfo,
 
 	      goto out;
 	    }
-
-	  devices[ndevices++] = dpyinfo->devices[i];
-
-	out:
-	  continue;
 	}
+
+      devices[ndevices++] = dpyinfo->devices[i];
+
+    out:
+      continue;
     }
 
   /* Free the old devices array and replace it with ndevices.  */
@@ -14879,6 +14871,14 @@ x_fast_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
       return;
     }
 
+  FOR_EACH_FRAME (tail, frame)
+    {
+      if (FRAME_X_P (XFRAME (frame))
+	  && (FRAME_DISPLAY_INFO (XFRAME (frame))
+	      == dpyinfo))
+	XFRAME (frame)->mouse_moved = false;
+    }
+
   if (!EQ (Vx_use_fast_mouse_position, Qreally_fast))
     {
       /* This means that Emacs should select a frame and report the
@@ -14886,14 +14886,6 @@ x_fast_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	 making multiple roundtrips to the X server querying for the
 	 window beneath the pointer, and was borrowed from
 	 haiku_mouse_position in haikuterm.c.  */
-
-      FOR_EACH_FRAME (tail, frame)
-	{
-	  if (FRAME_X_P (XFRAME (frame))
-	      && (FRAME_DISPLAY_INFO (XFRAME (frame))
-		  == dpyinfo))
-	    XFRAME (frame)->mouse_moved = false;
-	}
 
       if (gui_mouse_grabbed (dpyinfo)
 	  && !EQ (track_mouse, Qdropping)
@@ -14953,8 +14945,8 @@ x_fast_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
     }
   else
     {
-      /* This means Emacs should only report the coordinates of the
-	 last mouse motion.  */
+      /* This means Emacs should only report the coordinates of the last
+	 mouse motion.  */
 
       if (dpyinfo->last_mouse_motion_frame)
 	{
@@ -14964,15 +14956,6 @@ x_fast_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	  *y = make_fixnum (dpyinfo->last_mouse_motion_y);
 	  *bar_window = Qnil;
 	  *part = scroll_bar_nowhere;
-
-	  FOR_EACH_FRAME (tail, frame)
-	    {
-	      if (FRAME_X_P (XFRAME (frame))
-		  && (FRAME_DISPLAY_INFO (XFRAME (frame))
-		      == dpyinfo))
-		XFRAME (frame)->mouse_moved = false;
-	    }
-
 	  dpyinfo->last_mouse_motion_frame->mouse_moved = false;
 	}
     }
@@ -15466,7 +15449,7 @@ xt_action_hook (Widget widget, XtPointer client_data, String action_name,
 
   if (scroll_bar_p
       && strcmp (action_name, end_action) == 0
-      && WINDOWP (window_being_scrolled))
+      && WINDOW_LIVE_P (window_being_scrolled))
     {
       struct window *w;
       struct scroll_bar *bar;
@@ -19297,12 +19280,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		struct frame *f
 		  = x_top_window_to_frame (dpyinfo,
 					   event->xclient.window);
-#if defined HAVE_GTK3
-		GtkWidget *widget;
-		GdkWindow *window;
-		GdkFrameClock *frame_clock;
-#endif
-
 		if (f)
 		  {
 #ifndef HAVE_GTK3
@@ -19323,8 +19300,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		    *finish = X_EVENT_DROP;
 #else
-		    widget = FRAME_GTK_OUTER_WIDGET (f);
-		    window = gtk_widget_get_window (widget);
+		    GtkWidget *widget = FRAME_GTK_OUTER_WIDGET (f);
+		    GdkWindow *window = gtk_widget_get_window (widget);
 		    eassert (window);
 
 		    /* This could be a (former) child frame for which
@@ -19334,7 +19311,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		    if (widget && !FRAME_X_OUTPUT (f)->xg_sync_end_pending_p)
 		      {
-			frame_clock = gdk_window_get_frame_clock (window);
+			GdkFrameClock *frame_clock = gdk_window_get_frame_clock (window);
 			eassert (frame_clock);
 
 			gdk_frame_clock_request_phase (frame_clock,
@@ -20229,12 +20206,12 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       /* If mouse-highlight is an integer, input clears out
 	 mouse highlighting.  */
       if (!hlinfo->mouse_face_hidden && FIXNUMP (Vmouse_highlight)
-	  && (f == 0
+	  && (f == NULL
+	      || (!EQ (f->tab_bar_window, hlinfo->mouse_face_window)
 #if ! defined (USE_GTK)
-	      || !EQ (f->tool_bar_window, hlinfo->mouse_face_window)
+		  && !EQ (f->tool_bar_window, hlinfo->mouse_face_window)
 #endif
-	      || !EQ (f->tab_bar_window, hlinfo->mouse_face_window))
-	  )
+		 )))
         {
 	  mouse_frame = hlinfo->mouse_face_mouse_frame;
 
@@ -21292,8 +21269,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		&& (f == XFRAME (selected_frame)
 		    || !NILP (focus_follows_mouse)))
 	      {
-		static Lisp_Object last_mouse_window;
-
 		if (xmotion.window != FRAME_X_WINDOW (f))
 		  {
 		    x_translate_coordinates (f, xmotion.x_root, xmotion.y_root,
@@ -21485,45 +21460,49 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	}
 
 #if defined HAVE_GTK3 && defined USE_TOOLKIT_SCROLL_BARS
-	  struct scroll_bar *bar = x_window_to_scroll_bar (dpyinfo->display,
-							   configureEvent.xconfigure.window, 2);
+      struct scroll_bar *bar = x_window_to_scroll_bar (dpyinfo->display,
+						       configureEvent.xconfigure.window, 2);
 
-	  /* There is really no other way to make GTK scroll bars fit
-	     in the dimensions we want them to.  */
-	  if (bar)
+      /* There is really no other way to make GTK scroll bars fit
+	 in the dimensions we want them to.  */
+      if (bar)
+	{
+	  /* Skip all the pending configure events, not just the
+	     ones where window motion occurred.  */
+	  while (XPending (dpyinfo->display))
 	    {
-	      /* Skip all the pending configure events, not just the
-		 ones where window motion occurred.  */
-	      while (XPending (dpyinfo->display))
+	      XNextEvent (dpyinfo->display, &next_event);
+	      if (next_event.type != ConfigureNotify
+		  || next_event.xconfigure.window != event->xconfigure.window)
 		{
-		  XNextEvent (dpyinfo->display, &next_event);
-		  if (next_event.type != ConfigureNotify
-		      || next_event.xconfigure.window != event->xconfigure.window)
-		    {
-		      XPutBackEvent (dpyinfo->display, &next_event);
-		      break;
-		    }
-		  else
-		    configureEvent = next_event;
+		  XPutBackEvent (dpyinfo->display, &next_event);
+		  break;
 		}
+	      else
+		configureEvent = next_event;
+	    }
 
-	      if (configureEvent.xconfigure.width != max (bar->width, 1)
-		  || configureEvent.xconfigure.height != max (bar->height, 1))
-		{
-		  XResizeWindow (dpyinfo->display, bar->x_window,
-				 max (bar->width, 1), max (bar->height, 1));
-		  x_flush (WINDOW_XFRAME (XWINDOW (bar->window)));
-		}
+	  if (configureEvent.xconfigure.width != max (bar->width, 1)
+	      || configureEvent.xconfigure.height != max (bar->height, 1))
+	    {
+	      XResizeWindow (dpyinfo->display, bar->x_window,
+			     max (bar->width, 1), max (bar->height, 1));
+	      x_flush (WINDOW_XFRAME (XWINDOW (bar->window)));
+	    }
 
 #ifdef HAVE_XDBE
-	      if (f && FRAME_X_DOUBLE_BUFFERED_P (f))
-		x_drop_xrender_surfaces (f);
+	  if (f && FRAME_X_DOUBLE_BUFFERED_P (f))
+	    x_drop_xrender_surfaces (f);
 #endif
 
-	      goto OTHER;
-	    }
+	  goto OTHER;
+	}
 #endif
 
+      /* XXX: it is strictly only necessary to provide the edit window
+	 to many of the statements below which only modify or invalidate
+	 resources assigned there.  Most conditionals that alternate
+	 between `f' and `any' could ideally be removed.  */
       f = x_top_window_to_frame (dpyinfo, configureEvent.xconfigure.window);
 
       /* This means we can no longer be certain of the root window
@@ -21537,8 +21516,16 @@ handle_one_xevent (struct x_display_info *dpyinfo,
          for size changes: that's not sufficient.  We miss some
          surface invalidations and flicker.  */
 #ifdef HAVE_XDBE
-      if (f && FRAME_X_DOUBLE_BUFFERED_P (f))
-        x_drop_xrender_surfaces (f);
+      {
+#if defined USE_GTK || defined USE_X_TOOLKIT
+	/* Only modifications to the edit window (on which pictures are
+	   created) must be accompanied by invalidations.  (bug#77988) */
+	struct frame *f
+	  = x_window_to_frame (dpyinfo, configureEvent.xconfigure.window);
+#endif /* USE_GTK || USE_X_TOOLKIT */
+	if (f && FRAME_X_DOUBLE_BUFFERED_P (f))
+	  x_drop_xrender_surfaces (f);
+      }
 #endif
 #if defined USE_CAIRO && !defined USE_GTK
       if (f)
@@ -23232,7 +23219,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      && (f == XFRAME (selected_frame)
 			  || !NILP (focus_follows_mouse)))
 		    {
-		      static Lisp_Object last_mouse_window;
 		      Lisp_Object window = window_from_coordinates (f, ev.x, ev.y, 0, false, false,
 								    false);
 
@@ -24654,9 +24640,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      int i, ndevices, n_disabled, *disabled;
 	      struct xi_device_t *device;
 #if !defined USE_X_TOOLKIT && (!defined USE_GTK || defined HAVE_GTK3)
-	      bool any_changed;
-
-	      any_changed = false;
+	      bool any_changed = false;
 #endif /* !USE_X_TOOLKIT && (!USE_GTK || HAVE_GTK3) */
 	      hev = (XIHierarchyEvent *) xi_event;
 	      SAFE_NALLOCA (disabled, 1, hev->num_info);
@@ -24783,9 +24767,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    {
 	      struct xi_device_t *device, *source;
 	      bool menu_bar_p = false, tool_bar_p = false;
-#ifdef HAVE_GTK3
-	      GdkRectangle test_rect;
-#endif
 	      EMACS_INT local_detail;
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 	      source = xi_device_from_id (dpyinfo, xev->sourceid);
@@ -24818,6 +24799,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		{
 		  int scale = xg_get_scale (f);
 
+		  GdkRectangle test_rect;
 		  test_rect.x = xev->event_x / scale;
 		  test_rect.y = xev->event_y / scale;
 		  test_rect.width = 1;
@@ -26475,9 +26457,6 @@ x_ignore_errors_for_next_request (struct x_display_info *dpyinfo,
 {
   struct x_failable_request *request, *max;
   unsigned long next_request;
-#ifdef HAVE_GTK3
-  GdkDisplay *gdpy;
-#endif
 
   /* This code is not reentrant, so be sure nothing calls it
      recursively in response to input.  */
@@ -26488,9 +26467,7 @@ x_ignore_errors_for_next_request (struct x_display_info *dpyinfo,
      callbacks, which this can be called from.  Instead of trying to
      restore our own, add a trap for the following requests with
      GDK as well.  */
-
-  gdpy = gdk_x11_lookup_xdisplay (dpyinfo->display);
-
+  GdkDisplay *gdpy = gdk_x11_lookup_xdisplay (dpyinfo->display);
   if (gdpy)
     gdk_x11_display_error_trap_push (gdpy);
 #endif
@@ -26534,9 +26511,6 @@ void
 x_stop_ignoring_errors (struct x_display_info *dpyinfo)
 {
   struct x_failable_request *range;
-#ifdef HAVE_GTK3
-  GdkDisplay *gdpy;
-#endif
 
   range = dpyinfo->next_failable_request - 1;
   range->end = XNextRequest (dpyinfo->display) - 1;
@@ -26548,7 +26522,7 @@ x_stop_ignoring_errors (struct x_display_info *dpyinfo)
     emacs_abort ();
 
 #ifdef HAVE_GTK3
-  gdpy = gdk_x11_lookup_xdisplay (dpyinfo->display);
+  GdkDisplay *gdpy = gdk_x11_lookup_xdisplay (dpyinfo->display);
 
   if (gdpy)
     gdk_x11_display_error_trap_pop_ignored (gdpy);
@@ -27124,11 +27098,13 @@ x_error_quitter (Display *display, XErrorEvent *event)
 static int NO_INLINE
 x_io_error_quitter (Display *display)
 {
-  char buf[256];
-
-  snprintf (buf, sizeof buf, "Connection lost to X server '%s'",
-	    DisplayString (display));
+  char const *server = DisplayString (display);
+  static char const fmt[] = "Connection lost to X server '%s'";
+  USE_SAFE_ALLOCA;
+  char *buf = SAFE_ALLOCA (sizeof fmt - sizeof "%s" + strlen (server) + 1);
+  sprintf (buf, fmt, server);
   x_connection_closed (display, buf, true);
+  SAFE_FREE ();
 
   return 0;
 }
@@ -27514,7 +27490,7 @@ x_calc_absolute_position (struct frame *f)
 
   /* Treat negative positions as relative to the leftmost bottommost
      position that fits on the screen.  */
-  if ((flags & XNegative) && (f->left_pos <= 0))
+  if (flags & XNegative)
     {
       int width = FRAME_PIXEL_WIDTH (f);
 
@@ -27541,7 +27517,7 @@ x_calc_absolute_position (struct frame *f)
 
     }
 
-  if ((flags & YNegative) && (f->top_pos <= 0))
+  if (flags & YNegative)
     {
       int height = FRAME_PIXEL_HEIGHT (f);
 
@@ -30381,7 +30357,7 @@ static bool x_timeout_atimer_activated_flag;
 
 #endif /* USE_X_TOOLKIT */
 
-static int x_initialized;
+static bool x_initialized;
 
 /* Test whether two display-name strings agree up to the dot that separates
    the screen number from the server number.  */
@@ -30593,10 +30569,13 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   block_input ();
 
+#ifdef USE_GTK
+  bool was_initialized = x_initialized;
+#endif /* USE_GTK */
   if (!x_initialized)
     {
       x_initialize ();
-      ++x_initialized;
+      x_initialized = true;
     }
 
 #if defined USE_X_TOOLKIT || defined USE_GTK
@@ -30614,7 +30593,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
     char **argv2 = argv;
     guint id;
 
-    if (x_initialized++ > 1)
+    if (was_initialized)
       {
         xg_display_open (SSDATA (display_name), &dpy);
       }
@@ -30627,7 +30606,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
           argv[argc] = 0;
 
         argc = 0;
-        argv[argc++] = initial_argv[0];
+        argv[argc++] = initial_argv0;
 
         if (! NILP (display_name))
           {
@@ -30649,8 +30628,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
            Call before gtk_init so Gtk+ event filters comes after our.  */
         gdk_window_add_filter (NULL, event_handler_gdk, NULL);
 
-        /* gtk_init does set_locale.  Fix locale before and after.  */
-        fixup_locale ();
+        gtk_disable_setlocale ();
         unrequest_sigio (); /* See comment in x_display_ok.  */
         gtk_init (&argc, &argv2);
         request_sigio ();
@@ -30659,8 +30637,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
         xg_initialize ();
 
-	/* Do this after the call to xg_initialize, because when
-	   Fontconfig is used, xg_initialize calls its initialization
+	/* When Fontconfig is used, xg_initialize calls its initialization
 	   function which in some versions of Fontconfig calls setlocale.  */
 	fixup_locale ();
 
@@ -32590,7 +32567,7 @@ syms_of_xterm (void)
   DEFSYM (Qwheel_right, "wheel-right");
 
 #ifdef USE_GTK
-  xg_default_icon_file = build_pure_c_string ("icons/hicolor/scalable/apps/emacs.svg");
+  xg_default_icon_file = build_string ("icons/hicolor/scalable/apps/emacs.svg");
   staticpro (&xg_default_icon_file);
 
   DEFSYM (Qx_gtk_map_stock, "x-gtk-map-stock");
@@ -32739,7 +32716,7 @@ If set to a non-float value, there will be no wait at all.  */);
 
   DEFVAR_LISP ("x-keysym-table", Vx_keysym_table,
     doc: /* Hash table of character codes indexed by X keysym codes.  */);
-  Vx_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None, false);
+  Vx_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None);
 
   DEFVAR_BOOL ("x-frame-normalize-before-maximize",
 	       x_frame_normalize_before_maximize,

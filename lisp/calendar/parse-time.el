@@ -1,6 +1,6 @@
 ;;; parse-time.el --- parsing time strings -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996, 2000-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1996, 2000-2025 Free Software Foundation, Inc.
 
 ;; Author: Erik Naggum <erik@naggum.no>
 ;; Keywords: util
@@ -63,10 +63,10 @@ letters, digits, plus or minus signs or colons."
     (while (< index end)
       (while (and (< index end)		;Skip invalid characters.
 		  (not (setq c (parse-time-string-chars (aref string index)))))
-	(cl-incf index))
+        (incf index))
       (setq start index
             all-digits (eq c ?0))
-      (while (and (< (cl-incf index) end)	;Scan valid characters.
+      (while (and (< (incf index) end)	;Scan valid characters.
 		  (setq c (parse-time-string-chars (aref string index))))
 	(setq all-digits (and all-digits (eq c ?0))))
       (if (<= index end)

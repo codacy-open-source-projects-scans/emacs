@@ -1,6 +1,6 @@
 ;;; dired-aux.el --- less commonly used parts of dired -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2025 Free Software Foundation, Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>.
 ;; Maintainer: emacs-devel@gnu.org
@@ -330,14 +330,13 @@ only in the active region if `dired-mark-region' is non-nil."
   (interactive
    (list
     (let* ((target-dir (dired-dwim-target-directory))
-	   (defaults (dired-dwim-target-defaults nil target-dir)))
+           (defaults (dired-dwim-target-defaults nil target-dir)))
       (minibuffer-with-setup-hook
 	  (lambda ()
-            (setq-local minibuffer-default-add-function nil)
-	    (setq minibuffer-default defaults))
+            (setq-local minibuffer-default-add-function nil))
 	(read-directory-name (format "Compare %s with: "
 				     (dired-current-directory))
-			     target-dir target-dir t)))
+			     target-dir defaults t)))
     (read-from-minibuffer "Mark if (lisp expr or RET): " nil nil t nil "nil"))
    dired-mode)
   (let* ((dir1 (dired-current-directory))
@@ -490,9 +489,11 @@ List has a form of (file-name full-file-name (attribute-list))."
 (defun dired-do-chmod (&optional arg)
   "Change the mode of the marked (or next ARG) files.
 Both octal numeric modes like `644' and symbolic modes like `g+w'
-are supported.  Type \\<minibuffer-local-completion-map>\
-\\[next-history-element] to pull the file attributes of the file
-at point into the minibuffer.
+are supported.
+After invoking the command, \
+type \\<minibuffer-local-completion-map>\\[next-history-element] \
+to pull the file attributes
+of the file at point into the minibuffer.
 
 See Info node `(coreutils)File permissions' for more information.
 Alternatively, see the man page for \"chmod(1)\".
@@ -541,9 +542,10 @@ has no effect on MS-Windows."
 ;;;###autoload
 (defun dired-do-chgrp (&optional arg)
   "Change the group of the marked (or next ARG) files.
-Type \\<minibuffer-local-completion-map>\\[next-history-element] \
-to pull the file attributes of the file at point
-into the minibuffer."
+After invoking the command, \
+type \\<minibuffer-local-completion-map>\\[next-history-element] \
+to pull the file attributes
+of the file at point into the minibuffer."
   (interactive "P" dired-mode)
   (if (and (memq system-type '(ms-dos windows-nt))
            (not (file-remote-p default-directory)))
@@ -553,9 +555,10 @@ into the minibuffer."
 ;;;###autoload
 (defun dired-do-chown (&optional arg)
   "Change the owner of the marked (or next ARG) files.
-Type \\<minibuffer-local-completion-map>\\[next-history-element] \
-to pull the file attributes of the file at point
-into the minibuffer."
+After invoking the command, \
+type \\<minibuffer-local-completion-map>\\[next-history-element] \
+to pull the file attributes
+of the file at point into the minibuffer."
   (interactive "P" dired-mode)
   (if (and (memq system-type '(ms-dos windows-nt))
            (not (file-remote-p default-directory)))
@@ -566,9 +569,10 @@ into the minibuffer."
 (defun dired-do-touch (&optional arg)
   "Change the timestamp of the marked (or next ARG) files.
 This calls touch.
-Type Type \\<minibuffer-local-completion-map>\\[next-history-element] \
-to pull the file attributes of the file at point
-into the minibuffer."
+After invoking the command, \
+type \\<minibuffer-local-completion-map>\\[next-history-element] \
+to pull the file attributes
+of the file at point into the minibuffer."
   (interactive "P" dired-mode)
   (dired-do-chxxx "Timestamp" dired-touch-program 'touch arg))
 
@@ -1093,6 +1097,7 @@ Return the result of `process-file' - zero for success."
 
 (autoload 'Man-support-local-filenames "man")
 (autoload 'vc-responsible-backend "vc")
+(autoload 'vc-backend-for-registration "vc")
 
 (defvar dired-guess-shell-alist-default
   (list
@@ -1912,7 +1917,7 @@ return t; if SYM is q or ESC, return nil."
 		 (concat (apply #'format-message prompt args)
 			 (if help-form
 			     (format " [Type yn!q or %s] "
-				     (key-description (vector help-char)))
+                                     (help-key))
 			   " [Type y, n, q or !] ")))
 	   (set sym (setq char (read-char-choice prompt char-choices)))
 	   (if (memq char '(?y ?\s ?!)) t)))))
@@ -1925,7 +1930,10 @@ If invoked on a directory, compress all of the files in
 the directory and all of its subdirectories, recursively,
 into a .tar.gz archive.
 If invoked on a .tar.gz or a .tgz or a .zip or a .7z archive,
-uncompress and unpack all the files in the archive."
+uncompress and unpack all the files in the archive.
+
+When called from Lisp, if ARG is the symbol `marked', compress
+only the marked files, or none if no files are marked."
   (interactive "P" dired-mode)
   (dired-map-over-marks-check #'dired-compress arg 'compress t))
 
@@ -1954,7 +1962,10 @@ uncompress and unpack all the files in the archive."
 
 ;;;###autoload
 (defun dired-do-byte-compile (&optional arg)
-  "Byte compile marked (or next ARG) Emacs Lisp files."
+  "Byte compile marked (or next ARG) Emacs Lisp files.
+
+When called from Lisp, if ARG is the symbol `marked', byte-compile
+only the marked files, or none if no files are marked."
   (interactive "P" dired-mode)
   (dired-map-over-marks-check #'dired-byte-compile arg 'byte-compile t))
 
@@ -1971,7 +1982,10 @@ uncompress and unpack all the files in the archive."
 
 ;;;###autoload
 (defun dired-do-load (&optional arg)
-  "Load the marked (or next ARG) Emacs Lisp files."
+  "Load the marked (or next ARG) Emacs Lisp files.
+
+When called from Lisp, if ARG is the symbol `marked', load
+only the marked files, or none if no files are marked."
   (interactive "P" dired-mode)
   (dired-map-over-marks-check #'dired-load arg 'load t))
 
@@ -1987,7 +2001,10 @@ or delete subdirectories can bypass this machinery.  Hence, you sometimes
 may have to reset some subdirectory switches after a `dired-undo'.
 You can reset all subdirectory switches to the default using
 \\<dired-mode-map>\\[dired-reset-subdir-switches].
-See Info node `(emacs)Subdir switches' for more details."
+See Info node `(emacs)Subdir switches' for more details.
+
+When called from Lisp, if ARG is the symbol `marked', redisplay
+only the marked files, or none if no files are marked."
   ;; Moves point if the next ARG files are redisplayed.
   (interactive "P\np" dired-mode)
   (if (and test-for-subdir (dired-get-subdir))
@@ -2650,17 +2667,12 @@ Optional arg HOW-TO determines how to treat the target.
 	   (dired-one-file	; fluid variable inside dired-create-files
 	    (and (consp fn-list) (null (cdr fn-list)) (car fn-list)))
 	   (target-dir (dired-dwim-target-directory))
-	   (default (and dired-one-file
-		         (not dired-dwim-target) ; Bug#25609
-		         (expand-file-name (file-name-nondirectory
-                                            (car fn-list))
-					   target-dir)))
 	   (defaults (dired-dwim-target-defaults fn-list target-dir))
 	   (target (expand-file-name ; fluid variable inside dired-create-files
 		    (minibuffer-with-setup-hook
 		        (lambda ()
-                          (setq-local minibuffer-default-add-function nil)
-			  (setq minibuffer-default defaults))
+                          ;; Don't run `read-file-name--defaults'
+                          (setq-local minibuffer-default-add-function nil))
 		      (dired-mark-read-file-name
                        (format "%s %%s %s: "
                                (if dired-one-file op1 operation)
@@ -2670,7 +2682,7 @@ Optional arg HOW-TO determines how to treat the target.
                                    ;; other operations copy (etc) to the
                                    ;; prompted file name.
                                    "from" "to"))
-		       target-dir op-symbol arg rfn-list default))))
+		       target-dir op-symbol arg rfn-list defaults))))
 	   (into-dir
             (progn
               (when
@@ -2795,28 +2807,26 @@ Optional arg HOW-TO determines how to treat the target.
       this-dir)))
 
 (defun dired-dwim-target-defaults (fn-list target-dir)
-  ;; Return a list of default values for file-reading functions in Dired.
-  ;; This list may contain directories from Dired buffers in other windows.
-  ;; `fn-list' is a list of file names used to build a list of defaults.
-  ;; When nil or more than one element, a list of defaults will
-  ;; contain only directory names.  `target-dir' is a directory name
-  ;; to exclude from the returned list, for the case when this
-  ;; directory name is already presented in initial input.
-  ;; For Dired operations that support `dired-dwim-target',
-  ;; the argument `target-dir' should have the value returned
-  ;; from `dired-dwim-target-directory'.
+  "Return a list of default values for file-reading functions in Dired.
+
+This list may contain directories from Dired buffers in other windows.
+FN-LIST is a list of file names used to build a list of defaults.
+When nil or more than one element, a list of defaults will
+contain only directory names.
+
+TARGET-DIR should be the initial input in the minibuffer for the
+file-reading function.  For Dired operations that support
+`dired-dwim-target', TARGET-DIR should have the value returned from
+`dired-dwim-target-directory'."
   (let ((dired-one-file
 	 (and (consp fn-list) (null (cdr fn-list)) (car fn-list)))
 	(current-dir (and (eq major-mode 'dired-mode)
 			  (dired-current-directory)))
 	;; Get a list of directories of visible buffers in dired-mode.
 	(dired-dirs (dired-dwim-target-directories)))
-    ;; Force the current dir to be the first in the list.
+    ;; Force TARGET-DIR then CURRENT-DIR to be first in the list.
     (setq dired-dirs
-	  (delete-dups (delq nil (cons current-dir dired-dirs))))
-    ;; Remove the target dir (if specified) or the current dir from
-    ;; default values, because it should be already in initial input.
-    (setq dired-dirs (delete (or target-dir current-dir) dired-dirs))
+	  (delete-dups (delq nil (cons target-dir (cons current-dir dired-dirs)))))
     ;; Return a list of default values.
     (if dired-one-file
 	;; For one file operation, provide a list that contains
@@ -2829,10 +2839,7 @@ Optional arg HOW-TO determines how to treat the target.
 		(mapcar (lambda (dir)
 			  (expand-file-name
 			   (file-name-nondirectory (car fn-list)) dir))
-			(reverse dired-dirs))
-		(list (expand-file-name
-		       (file-name-nondirectory (car fn-list))
-		       (or target-dir current-dir))))
+			(reverse dired-dirs)))
       ;; For multi-file operation, return only a list of other directories.
       dired-dirs)))
 
@@ -2867,13 +2874,33 @@ If DIRECTORY already exists, signal an error."
       (dired-add-file new)
       (dired-move-to-filename))))
 
+(defcustom dired-create-empty-file-in-current-directory nil
+  "Whether `dired-create-empty-file' acts on the current directory.
+If non-nil, `dired-create-empty-file' creates a new empty file and adds
+an entry for it (or its topmost new parent directory if created) under
+the current subdirectory in the Dired buffer by default (otherwise, it
+adds the new file (and new subdirectories if provided) to whichever
+directory the user enters at the prompt).  If nil,
+`dired-create-empty-file' acts on the default directory by default."
+  :type 'boolean
+  :group 'dired
+  :version "31.1")
+
 ;;;###autoload
 (defun dired-create-empty-file (file)
   "Create an empty file called FILE.
-Add a new entry for the new file in the Dired buffer.
 Parent directories of FILE are created as needed.
+Add an entry in the Dired buffer for the topmost new parent
+directory of FILE, if created, otherwise for the new file.
+If user option `dired-create-empty-file-in-current-directory' is
+non-nil, act on the current subdirectory by default, otherwise act on
+the default directory by default.
 If FILE already exists, signal an error."
-  (interactive (list (read-file-name "Create empty file: ")) dired-mode)
+  (interactive
+   (list (read-file-name "Create empty file: "
+                         (and dired-create-empty-file-in-current-directory
+                              (dired-current-directory))))
+   dired-mode)
   (let* ((expanded (expand-file-name file))
          new)
     (if (file-exists-p expanded)
@@ -3963,12 +3990,12 @@ If only regular files are in the fileset, call `vc-next-action' with
 the same value of the VERBOSE argument (interactively, the prefix
 argument).
 
-If one or more directories are in the fileset, start `vc-dir' in the root
-directory of the repository that includes the current directory, with
-the same files/directories marked in the VC-Directory buffer that were
-marked in the original Dired buffer.  If the current directory doesn't
-belong to a VCS repository, prompt for a repository directory.  In this
-case, the VERBOSE argument is ignored."
+If one or more directories are in the fileset, start `vc-dir' in the
+root directory of the repository that includes the current directory,
+with all directories in the fileset marked in the VC-Directory buffer
+that were marked in the original Dired buffer.  If the current directory
+doesn't belong to a VCS repository, prompt for a repository directory.
+In this case, the VERBOSE argument is ignored."
   (interactive "P" dired-mode)
   (let* ((marked-files
           (dired-get-marked-files nil nil nil nil t))
@@ -3992,31 +4019,26 @@ case, the VERBOSE argument is ignored."
           (add-hook 'vc-dir-refresh-hook transient-hook nil t))
       (vc-next-action verbose))))
 
-(declare-function vc-compatible-state "vc")
+(declare-function vc-only-files-state-and-model "vc")
 
 ;;;###autoload
-(defun dired-vc-deduce-fileset (&optional state-model-only-files not-state-changing)
-  (let ((backend (vc-responsible-backend default-directory))
-        (files (dired-get-marked-files nil nil nil nil t))
-        only-files-list
-        state
-        model)
-    (when (and (not not-state-changing) (cl-some #'file-directory-p files))
-      (user-error "State changing VC operations on directories supported only in `vc-dir'"))
-
-    (when state-model-only-files
-      (setq only-files-list (mapcar (lambda (file) (cons file (vc-state file))) files))
-      (setq state (cdar only-files-list))
-      ;; Check that all files are in a consistent state, since we use that
-      ;; state to decide which operation to perform.
-      (dolist (crt (cdr only-files-list))
-        (unless (vc-compatible-state (cdr crt) state)
-          (error "When applying VC operations to multiple files, the files are required\nto  be in similar VC states.\n%s in state %s clashes with %s in state %s"
-                 (car crt) (cdr crt) (caar only-files-list) state)))
-      (setq only-files-list (mapcar 'car only-files-list))
-      (when (and state (not (eq state 'unregistered)))
-        (setq model (vc-checkout-model backend only-files-list))))
-    (list backend files only-files-list state model)))
+(defun dired-vc-deduce-fileset
+    (&optional state-model-only-files not-state-changing)
+  (let* ((files (dired-get-marked-files nil nil nil nil t))
+         (backend (or (vc-responsible-backend default-directory t)
+                      (vc-backend-for-registration (car files)))))
+    (when (and (not not-state-changing)
+               (cl-some #'file-directory-p files))
+      (user-error "\
+State-changing VC operations on directories supported only from VC-Dir"))
+    (if state-model-only-files
+        (let ((only-files-list (mapcar (lambda (file)
+                                         (cons file (vc-state file)))
+                                       files)))
+          (cl-list* backend files
+                    (vc-only-files-state-and-model only-files-list
+                                                   backend)))
+      (list backend files))))
 
 
 (provide 'dired-aux)

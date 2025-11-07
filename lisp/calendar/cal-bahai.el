@@ -1,6 +1,6 @@
 ;;; cal-bahai.el --- calendar functions for the Bahá’í calendar.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Keywords: calendar
@@ -170,7 +170,8 @@ Reads a year, month and day."
                       (calendar-make-alist calendar-bahai-month-name-array
                                            1))))
          (day (calendar-read-sexp "Bahá’í calendar day (1-19)"
-                                  (lambda (x) (and (< 0 x) (<= x 19))))))
+                                  (lambda (x) (and (< 0 x) (<= x 19)))
+                                  1)))
     (list (list month day year))))
 
 ;;;###cal-autoload

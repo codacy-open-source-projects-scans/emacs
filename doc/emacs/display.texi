@@ -1,6 +1,6 @@
 @c -*- coding: utf-8 -*-
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2024 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2000--2025 Free Software
 @c Foundation, Inc.
 
 @c See file emacs.texi for copying conditions.
@@ -1085,6 +1085,7 @@ program.
 @menu
 * Traditional Font Lock::  Font Lock based on regexps and syntax tables.
 * Parser-based Font Lock:: Font Lock based on external parser.
+* Semantic Font Lock::     Font Lock based on semantic analysis.
 @end menu
 
 @node Traditional Font Lock
@@ -1208,6 +1209,94 @@ fontification level.
 @w{@kbd{M-x customize-variable}} (@pxref{Specific Customization}), it
 takes effect immediately in all the existing buffers and for files you
 visit in the future in the same session.
+
+@node Semantic Font Lock
+@subsection Semantic Font Lock
+@cindex semantic highlighting
+
+@dfn{Semantic highlighting} is feature in which
+an editor uses some kind of semantic analysis to understand a program's
+source code, and communicates useful information about the meaning of
+different tokens to the user by highlighting these tokens according to
+their specific role in the program.
+
+Semantic highlighting is more sophisticated than traditional ``syntax
+highlighting'', which only considers the syntactic role of a token,
+i.e., how it affects the code's @emph{parsing}, unlike semantic analysis
+which takes into account the token's effect on the program's
+@emph{execution}.  For example, a semantic highlighting implementation
+may be able to tell apart local and global variables and give distinct
+highlighting to each category, even though the language's @emph{syntax}
+doesn't make such a distinction.  Semantic highlighting is especially
+beneficial in languages in which syntactic constructs can mean
+completely different things depending on the context in which they
+occur, such as Lisp and Prolog.  In such languages, syntactic analysis
+alone misses a lot of important information that coders need to reason
+about their programs.
+
+@vindex elisp-fontify-semantically
+Emacs implements semantic highlighting for Emacs Lisp as an optional
+feature of @code{emacs-lisp-mode} (@pxref{Executing Lisp}).  To enable
+it, customize the option @code{elisp-fontify-semantically} to a
+non-@code{nil} value.
+
+When this option is enabled, @code{emacs-lisp-mode} analyzes your code
+and highlights symbols according to their semantic roles, as part of the
+mode's usual Font Lock highlighting (@pxref{Font Lock}).  It doesn't
+affect the highlighting of strings, comments and other syntactic
+elements such as brackets; @code{elisp-fontify-semantically} only
+affects highlighting of symbols.
+
+@cindex symbol role, in semantic analysis
+The semantic analysis assigns to each symbol a @dfn{symbol role}, such
+as ``function'', ``local variable'', ``face name'', etc.  Each symbol
+role has an associated face property, which is applied to symbols with
+that role during semantic highlighting.  By default, most of these faces
+inherit from appropriate @code{font-lock-*} faces.  For example,
+locally-bound variables get the @code{elisp-bound-variable} face, which
+inherits from @code{font-lock-variable-use-face}.
+
+@vindex elisp-add-help-echo
+The semantic analysis can differentiate between more than 50 such symbol roles,
+but you don't need to memorize the appearance of so many faces to
+leverage semantic highlighting: you can hover over an highlighted symbol
+with the mouse to see a tooltip with the exact role Emacs inferred for
+that symbol (@pxref{Tooltips}).  If you want to disable this extra
+information, customize @code{elisp-add-help-echo} to the @code{nil} value.
+
+There are a few more points you should keep in mind when using
+@code{elisp-fontify-semantically}:
+
+@itemize @bullet
+@item
+Syntax errors break semantic analysis, so for best results you may want
+to enable @code{electric-pair-mode} to keep your code syntactically
+correct while you edit it.  @xref{Matching}.
+
+@cindex trusted buffers, and semantic highlighting
+@vindex elisp-scope-safe-macros
+@item
+The analysis uses macro-expansion in some cases, but by default it only
+does so in trusted buffers (@pxref{Host Security}).  In @emph{untrusted}
+buffers, some macro arguments may not be highlighted.  See the
+documentation string of @code{elisp-scope-safe-macro-p} for more
+information about which macros Emacs considers safe to expand for
+analysis.  The user option @code{elisp-scope-safe-macros} controls which
+macros are safe to expand during analysis in untrusted buffers.
+
+@item
+The analysis is informed by definitions in the current Emacs session,
+hence code that uses unloaded libraries may miss some highlighting.
+
+@item
+The analysis assumes that lexical binding is in effect (@pxref{Selecting
+Lisp Dialect,,, elisp, the Emacs Lisp Reference Manual}).
+
+@item
+Semantic highlighting requires additional processing over traditional
+Font Lock---the current implementation might be slow when editing very
+large defuns.
+@end itemize
 
 
 @node Highlight Interactively
@@ -1810,6 +1899,29 @@ lines are displayed in the @code{mode-line} face.
 formats by setting each of the variables @code{eol-mnemonic-unix},
 @code{eol-mnemonic-dos}, @code{eol-mnemonic-mac}, and
 @code{eol-mnemonic-undecided} to the strings you prefer.
+
+@vindex mode-line-compact
+@vindex mode-line-collapse-minor-modes
+  Some modes put a lot of data in the mode line, pushing elements at the
+end of the mode line off to the right.  Emacs can ``compress'' the mode
+line if the @code{mode-line-compact} variable is non-@code{nil} by
+turning stretches of spaces into a single space.  If this variable is
+@code{long}, this is only done when the mode line is wider than the
+currently selected window.  (This computation is approximate, based on
+the number of characters, and not their displayed width.)  This variable
+can be buffer-local to only compress mode-lines in certain buffers.  To
+further ``compress'' the mode line, you may customize the
+@code{mode-line-collapse-minor-modes} option to a non-@code{nil} value,
+and Emacs will hide some minor mode indicators on the mode line by
+collapsing them into a single clickable button.
+
+@findex mode-line-invisible-mode
+  By default, most buffers display a mode line, but if the mode line is
+not useful in a buffer, you can use the command @w{@kbd{M-x
+mode-line-invisible-mode}} to hide the mode line in the current buffer,
+the mode line remains hidden until this command is called again.  To
+always hide the mode line when entering to a major mode, add
+@code{mode-line-invisible-mode} to a hook (@pxref{Hooks}).
 
 @node Text Display
 @section How Text Is Displayed

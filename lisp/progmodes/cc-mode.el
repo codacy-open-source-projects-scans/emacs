@@ -1,6 +1,6 @@
 ;;; cc-mode.el --- major mode for editing C and similar languages -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1987, 1992-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2025 Free Software Foundation, Inc.
 
 ;; Authors:    2003- Alan Mackenzie
 ;;             1998- Martin Stjernholm
@@ -66,7 +66,7 @@
 ;; You can get the latest version of CC Mode, including PostScript
 ;; documentation and separate individual files from:
 ;;
-;;     https://cc-mode.sourceforge.net/
+;;     https://www.nongnu.org/cc-mode/
 ;;
 ;; You can join a moderated CC Mode announcement-only mailing list by
 ;; visiting
@@ -172,8 +172,8 @@
 ;; `c-font-lock-init' too to set up CC Mode's font lock support.
 ;;
 ;; See cc-langs.el for further info.  A small example of a derived mode
-;; is also available at <https://cc-mode.sourceforge.net/
-;; derived-mode-ex.el>.
+;; is also available at
+;; <https://www.nongnu.org/cc-mode/derived-mode-ex.el>.
 
 (defun c-leave-cc-mode-mode ()
   (when c-buffer-is-cc-mode
@@ -194,6 +194,8 @@
 	(c-clear-char-properties (point-min) (point-max) 'c-is-sws)
 	(c-clear-char-properties (point-min) (point-max) 'c-in-sws)
 	(c-clear-char-properties (point-min) (point-max) 'c-type)
+	(if c-has-quoted-numbers
+	    (c-clear-char-properties (point-min) (point-max) 'c-digit-separator))
 	(if (c-major-mode-is 'awk-mode)
 	    (c-clear-char-properties (point-min) (point-max) 'c-awk-NL-prop))))
     (setq c-buffer-is-cc-mode nil)))
@@ -250,7 +252,11 @@ control).  See \"cc-mode.el\" for more info."
             (when (fboundp 'electric-indent-local-mode)
 	      (add-hook 'electric-indent-mode-hook 'c-electric-indent-mode-hook)
               (add-hook 'electric-indent-local-mode-hook
-                        'c-electric-indent-local-mode-hook)))
+                        'c-electric-indent-local-mode-hook))
+	    ;; Setup hideshow variables
+	    (setq-local hs-block-start-regexp "\\s(\\|{\\|\"")
+	    (setq-local hs-block-end-regexp "\\s)\\|}\\|\"")
+	    (setq-local hs-c-start-regexp "/[*/]"))
 	;; Will try initialization hooks again if they failed.
 	(put 'c-initialize-cc-mode initprop c-initialization-ok))))
 
@@ -1008,6 +1014,15 @@ Note that the style variables are always made local to the buffer."
 	'(put-text-property remove-text-properties
 			    remove-list-of-text-properties)))
 
+(defun c-locate-first-punctuation-prop (beg)
+  ;; Scan the region (BEG (point)) for `syntax-table' punctuation text properties,
+  ;; returning the position of the first found, or nil.  Point is unchanged.
+  (let ((end (point)))
+    (goto-char beg)
+    (prog1 (if (c-search-forward-char-property 'syntax-table '(1) end)
+	       (match-beginning 0))
+      (goto-char end))))
+
 (defun c-depropertize-CPP (beg end)
   ;; Remove the punctuation syntax-table text property from the CPP parts of
   ;; (c-new-BEG c-new-END), and remove all syntax-table properties from any
@@ -1024,15 +1039,18 @@ Note that the style variables are always made local to the buffer."
       (setq m-beg (point))
       (c-end-of-macro)
       (when c-ml-string-opener-re
-	(save-excursion (c-depropertize-ml-strings-in-region m-beg (point)))
-	(c-clear-syntax-table-with-value-trim-caches m-beg (point) '(1))))
+	(save-excursion (c-depropertize-ml-strings-in-region m-beg (point))))
+      (c-clear-syntax-table-with-value-trim-caches m-beg (point) '(1)))
 
     (while (and (< (point) end)
 		(setq ss-found
 		      (search-forward-regexp c-anchored-cpp-prefix end 'bound)))
       (goto-char (match-beginning 1))
       (setq m-beg (point))
-      (c-end-of-macro))
+      (c-end-of-macro)
+      (c-truncate-lit-pos/state-cache
+       (or (c-locate-first-punctuation-prop m-beg) (point-max))))
+
     (when (and ss-found (> (point) end))
       (when c-ml-string-opener-re
 	(save-excursion (c-depropertize-ml-strings-in-region m-beg (point))))
@@ -1044,6 +1062,8 @@ Note that the style variables are always made local to the buffer."
       (goto-char (match-beginning 1))
       (setq m-beg (point))
       (c-end-of-macro)
+      (c-truncate-lit-pos/state-cache
+       (or (c-locate-first-punctuation-prop m-beg) (point-max)))
       (when c-ml-string-opener-re
 	(save-excursion (c-depropertize-ml-strings-in-region m-beg (point))))
       (c-clear-syntax-table-with-value-trim-caches m-beg (point) '(1)))))
@@ -1126,16 +1146,20 @@ Note that the style variables are always made local to the buffer."
 	  (progn
 	    (setq s (parse-partial-sexp beg end -1))
 	    (cond
-	     ((< (nth 0 s) 0)		; found an unmated ),},]
-	      (c-put-syntax-table-trim-caches (1- (point)) '(1))
+	     ((< (nth 0 s) 0)		; found an unmated ),},],>
+	      (if (eq (char-before) ?>)
+		  (c-clear->-pair-props (1- (point)))
+		(c-put-syntax-table-trim-caches (1- (point)) '(1)))
 	      t)
 	     ;; Unbalanced strings are now handled by
 	     ;; `c-before-change-check-unbalanced-strings', etc.
 	     ;; ((nth 3 s)			; In a string
 	     ;;  (c-put-char-property (nth 8 s) 'syntax-table '(1))
 	     ;;  t)
-	     ((> (nth 0 s) 0)		; In a (,{,[
-	      (c-put-syntax-table-trim-caches (nth 1 s) '(1))
+	     ((> (nth 0 s) 0)		; In a (,{,[,<
+	      (if (eq (char-after (nth 1 s)) ?<)
+		  (c-clear-<-pair-props (nth 1 s))
+		(c-put-syntax-table-trim-caches (nth 1 s) '(1)))
 	      t)
 	     (t nil)))))))
 
@@ -1284,7 +1308,7 @@ Note that the style variables are always made local to the buffer."
   ;; `(let ((-pos- ,pos)
   ;;	 (-value- ,value))
   (if (equal value '(15))
-      (c-put-string-fence pos)
+      (c-put-string-fence-trim-caches pos)
     (c-put-syntax-table-trim-caches pos value))
   (c-put-char-property pos 'c-fl-syn-tab value)
   (cond
@@ -2029,18 +2053,16 @@ This function is used solely as a member of
     (while (and (< (point) search-end)
 		(search-forward-regexp c-cpp-include-key search-end 'bound)
 		(setq hash-pos (match-beginning 0)))
-      (save-restriction
-	(narrow-to-region (point-min) (c-point 'eoll))
-	(c-forward-comments))
+      (c-forward-comments (c-point 'eoll))
       (when (and (< (point) search-end)
 		 (looking-at "\\s(")
 		 (looking-at "\\(<\\)[^>\n\r]*\\(>\\)?")
 		 (not (cdr (c-semi-pp-to-literal hash-pos))))
-	(c-unmark-<->-as-paren (match-beginning 1))
+	(c-unmark-<-or->-as-paren (match-beginning 1))
 	(when (< hash-pos c-new-BEG)
 	  (setq c-new-BEG hash-pos))
 	(when (match-beginning 2)
-	  (c-unmark-<->-as-paren (match-beginning 2))
+	  (c-unmark-<-or->-as-paren (match-beginning 2))
 	  (when (> (match-end 2) c-new-END)
 	    (setq c-new-END (match-end 2))))))))
 
@@ -2063,9 +2085,7 @@ This function is used solely as a member of
     (while (and (< (point) search-end)
 		(search-forward-regexp c-cpp-include-key search-end 'bound)
 		(setq hash-pos (match-beginning 0)))
-      (save-restriction
-	(narrow-to-region (point-min) (c-point 'eoll))
-	(c-forward-comments))
+      (c-forward-comments (c-point 'eoll))
       (when (and (< (point) search-end)
 		 (looking-at "\\(<\\)[^>\n\r]*\\(>\\)")
 		 (not (cdr (c-semi-pp-to-literal (match-beginning 0)))))
@@ -2275,7 +2295,7 @@ with // and /*, not more generic line and block comments."
 		     (end1
 		      (or (and (eq (get-text-property end 'face)
 				   'font-lock-comment-face)
-			       (previous-single-property-change end 'face))
+			       (c-previous-single-property-change end 'face))
 			  end)))
 	     (when (>= end1 beg) ; Don't hassle about changes entirely in
 					; comments.
@@ -2295,8 +2315,8 @@ with // and /*, not more generic line and block comments."
 			  (setq type-pos
 				(if (get-text-property (1- end1) 'c-type)
 				    end1
-				  (previous-single-property-change end1 'c-type
-								   nil lim))))
+				  (c-previous-single-property-change end1 'c-type
+								     nil lim))))
 		 (setq type (get-text-property (max (1- type-pos) lim) 'c-type))
 
 		 (when (memq type '(c-decl-id-start c-decl-type-start))
@@ -2582,7 +2602,7 @@ with // and /*, not more generic line and block comments."
       (goto-char (car ml-delim)))
     (c-backward-syntactic-ws lim)
     (when (setq enclosing-attribute (c-enclosing-c++-attribute))
-      (goto-char (car enclosing-attribute)) ; Only happens in C++ Mode.
+      (goto-char (car enclosing-attribute)) ; Only happens in C or C++ Mode.
       (c-backward-syntactic-ws lim))
     (while (and (> (point) lim)
 		(memq (char-before) '(?\[ ?\()))

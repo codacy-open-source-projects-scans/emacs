@@ -1,6 +1,6 @@
 ;;; calendar.el --- calendar functions  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1988-1995, 1997, 2000-2024 Free Software Foundation,
+;; Copyright (C) 1988-1995, 1997, 2000-2025 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Edward M. Reingold <reingold@cs.uiuc.edu>
@@ -90,6 +90,19 @@
 ;; <https://doi.org/10.1002/spe.4380230404>
 ;; <http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.42.6421&rep=rep1&type=pdf>
 
+;; A note on how dates are represented:
+
+;; The standard format for a (Gregorian) calendar date in this file is a
+;; list of integers (MONTH DAY YEAR) -- see the functions
+;; `calendar-extract-year', `calendar-extract-month', and
+;; `calendar-extract-day'.  Internally it also uses an "absolute" format
+;; which is an integer number of days since December 31, 1BC on the
+;; Gregorian calendar (see e.g. `calendar-absolute-from-gregorian'), and
+;; converts between different calendar scales by converting to and from
+;; the absolute format (see e.g. `calendar-iso-from-absolute' in
+;; cal-iso.el).  This representation is also useful for certain
+;; calculations; e.g. `calendar-day-of-week' is simply the absolute
+;; representation modulo 7, because December 31, 1BC is a Sunday.
 
 ;; A note on free variables:
 
@@ -442,6 +455,12 @@ Each element has the form (N LEFT FIRST LAST RIGHT), where
 LEFT is the leftmost column associated with month segment N,
 FIRST and LAST are the first and last columns with day digits in,
 and LAST is the rightmost column.")
+
+(defvar calendar-mark-holidays nil
+  "Variable version of the user option `calendar-mark-holidays-flag'.")
+
+(defvar calendar-mark-diary-entries nil
+  "Variable version of the user option `calendar-mark-diary-entries-flag'.")
 
 (defun calendar-month-edges (segment)
   "Compute the month edge columns for month SEGMENT.
@@ -800,8 +819,8 @@ but `diary-date-forms' (which see)."
 (defcustom diary-european-date-forms
   '((day "/" month "[^/0-9]")
     (day "/" month "/" year "[^0-9]")
-    (backup day " *" monthname "\\W+\\<\\([^*0-9]\\|\\([0-9]+[:aApP]\\)\\)")
-    (day " *" monthname " *" year "[^0-9:aApP]")
+    (backup day " *" monthname "\\W+\\<\\([^*0-9]\\|\\([0-9]+[:.aApP]\\)\\)")
+    (day " *" monthname " *" year "[^0-9:.aApP]")
     (dayname "\\W"))
   "List of pseudo-patterns describing the European style of dates.
 The defaults are: DAY/MONTH; DAY/MONTH/YEAR; DAY MONTHNAME;
@@ -816,7 +835,8 @@ DAY MONTHNAME YEAR; DAYNAME.  Normally you should not customize this, but
                          (repeat (list :inline t :format "%v"
                                        (symbol :tag "Keyword")
                                        (choice symbol regexp)))))
-  :group 'diary)
+  :group 'diary
+  :version "31.1")
 
 (defvar diary-font-lock-keywords)
 
@@ -1147,17 +1167,20 @@ MON defaults to `displayed-month'.  YR defaults to `displayed-year'."
 First creates or erases BUFFER as needed.  Leaves BUFFER read-only,
 with disabled undo.  Leaves point at `point-min', displays BUFFER."
   (declare (indent 1) (debug t))
-  `(progn
-     (set-buffer (get-buffer-create ,buffer))
-     (or (derived-mode-p 'special-mode) (special-mode))
-     (setq buffer-read-only nil
-           buffer-undo-list t)
-     (erase-buffer)
-     (display-buffer ,buffer)
-     ,@body
-     (goto-char (point-min))
-     (set-buffer-modified-p nil)
-     (setq buffer-read-only t)))
+  (let ((window (gensym)))
+    `(progn
+       (set-buffer (get-buffer-create ,buffer))
+       (or (derived-mode-p 'special-mode) (special-mode))
+       (setq buffer-read-only nil
+             buffer-undo-list t)
+       (erase-buffer)
+       (let ((,window (display-buffer ,buffer)))
+         (when ,window
+	   (with-selected-window ,window
+	     ,@body
+	     (goto-char (point-min)))))
+       (set-buffer-modified-p nil)
+       (setq buffer-read-only t))))
 
 ;; The following are in-line for speed; they can be called thousands of times
 ;; when looking up holidays or processing the diary.  Here, for example, are
@@ -1418,14 +1441,12 @@ Optional integers MON and YR are used instead of today's date."
 	  (fit-window-to-buffer nil nil calendar-minimum-window-height)
 	;; For a full height window or a window that is horizontally
 	;; combined don't fit height to that of its buffer.
-	(set-window-vscroll nil 0))
-      (sit-for 0))
-    (and calendar-mark-holidays-flag
+	(set-window-vscroll nil 0)))
+    (and calendar-mark-holidays
          ;; (calendar-date-is-valid-p today) ; useful for BC dates
-         (calendar-mark-holidays)
-         (and in-calendar-window (sit-for 0)))
+         (calendar-mark-holidays))
     (unwind-protect
-        (if calendar-mark-diary-entries-flag (diary-mark-entries))
+        (if calendar-mark-diary-entries (diary-mark-entries))
       (run-hooks (if today-visible
                      'calendar-today-visible-hook
                    'calendar-today-invisible-hook)))))
@@ -1573,16 +1594,25 @@ Otherwise, use the selected window of EVENT's frame."
       (define-key map (vector 'remap c) 'calendar-not-implemented))
     (define-key map "<"     'calendar-scroll-right)
     (define-key map "\C-x<" 'calendar-scroll-right)
+    (define-key map [S-wheel-up] 'calendar-scroll-right)
     (define-key map [prior] 'calendar-scroll-right-three-months)
     (define-key map "\ev"   'calendar-scroll-right-three-months)
+    (define-key map [wheel-up] 'calendar-scroll-right-three-months)
+    (define-key map [M-wheel-up] 'calendar-backward-year)
     (define-key map ">"     'calendar-scroll-left)
     (define-key map "\C-x>" 'calendar-scroll-left)
+    (define-key map [S-wheel-down] 'calendar-scroll-left)
     (define-key map [next]  'calendar-scroll-left-three-months)
     (define-key map "\C-v"  'calendar-scroll-left-three-months)
+    (define-key map [wheel-down] 'calendar-scroll-left-three-months)
+    (define-key map [M-wheel-down] 'calendar-forward-year)
+    (define-key map "\C-l"  'calendar-recenter)
     (define-key map "\C-b"  'calendar-backward-day)
     (define-key map "\C-p"  'calendar-backward-week)
     (define-key map "\e{"   'calendar-backward-month)
+    (define-key map "{"   'calendar-backward-month)
     (define-key map "\C-x[" 'calendar-backward-year)
+    (define-key map "[" 'calendar-backward-year)
     (define-key map "\C-f"  'calendar-forward-day)
     (define-key map "\C-n"  'calendar-forward-week)
     (define-key map [left]  'calendar-backward-day)
@@ -1590,7 +1620,9 @@ Otherwise, use the selected window of EVENT's frame."
     (define-key map [right] 'calendar-forward-day)
     (define-key map [down]  'calendar-forward-week)
     (define-key map "\e}"   'calendar-forward-month)
+    (define-key map "}"   'calendar-forward-month)
     (define-key map "\C-x]" 'calendar-forward-year)
+    (define-key map "]" 'calendar-forward-year)
     (define-key map "\C-a"  'calendar-beginning-of-week)
     (define-key map "\C-e"  'calendar-end-of-week)
     (define-key map "\ea"   'calendar-beginning-of-month)
@@ -1807,6 +1839,9 @@ For a complete description, see the info node `Calendar/Diary'.
   (make-local-variable 'calendar-mark-ring)
   (make-local-variable 'displayed-month) ; month in middle of window
   (make-local-variable 'displayed-year)  ; year in middle of window
+  ;; Init with user options.
+  (setq calendar-mark-holidays calendar-mark-holidays-flag
+        calendar-mark-diary-entries calendar-mark-diary-entries-flag)
   ;; Most functions only work if displayed-month and displayed-year are set,
   ;; so let's make sure they're always set.  Most likely, this will be reset
   ;; soon in calendar-generate, but better safe than sorry.
@@ -2341,7 +2376,8 @@ returned is (month year)."
                        (completion-table-with-metadata
                         (completion-table-case-fold
                          (append month-array nil))
-                        `((category . calendar-month)))
+                        `((category . calendar-month)
+                          (display-sort-function . identity)))
                        nil t nil nil defmon)
                       (calendar-make-alist month-array 1) t)))
          (defday (calendar-extract-day default-date))
@@ -2404,8 +2440,8 @@ interpreted as BC; -1 being 1 BC, and so on."
 (defun calendar-unmark ()
   "Delete all diary/holiday marks/highlighting from the calendar."
   (interactive)
-  (setq calendar-mark-holidays-flag nil
-        calendar-mark-diary-entries-flag nil)
+  (setq calendar-mark-holidays nil
+        calendar-mark-diary-entries nil)
   (with-current-buffer calendar-buffer
     (mapc #'delete-overlay (overlays-in (point-min) (point-max)))))
 
@@ -2500,9 +2536,9 @@ ATTRLIST is a list with elements of the form :face face :foreground color."
     (if (not faceinfo)
         ;; No attributes to apply, so just use an existing-face.
         face
-      ;; FIXME should we be using numbered temp-faces, reusing where poss?
+      ;; Compute temp face name.
       (setq temp-face
-            (make-symbol
+            (intern
              (concat ":caltemp"
                      (mapconcat (lambda (sym)
                                   (cond
@@ -2510,10 +2546,12 @@ ATTRLIST is a list with elements of the form :face face :foreground color."
                                    ((numberp sym) (number-to-string sym))
                                    (t sym)))
                                 attrlist ""))))
-      (make-face temp-face)
-      (copy-face face temp-face)
-      ;; Apply the font aspects.
-      (apply #'set-face-attribute temp-face nil (nreverse faceinfo))
+      ;; Create this new face if it does not already exist.
+      (unless (member temp-face (face-list))
+        (make-face temp-face)
+        (copy-face face temp-face)
+        ;; Apply the font aspects.
+        (apply #'set-face-attribute temp-face nil (nreverse faceinfo)))
       temp-face)))
 
 (defun calendar-mark-visible-date (date &optional mark)

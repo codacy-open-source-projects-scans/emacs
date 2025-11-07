@@ -1,6 +1,6 @@
 ;;; rfc2231.el --- Functions for decoding rfc2231 headers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; This file is part of GNU Emacs.
@@ -293,7 +293,7 @@ the result of this function."
 	    (insert param "*=")
 	  (while (not (eobp))
 	    (insert (if (>= num 0) " " "")
-		    param "*" (format "%d" (cl-incf num)) "*=")
+                    param "*" (format "%d" (incf num)) "*=")
 	    (forward-line 1))))
        (spacep
 	(goto-char (point-min))

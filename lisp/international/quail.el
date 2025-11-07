@@ -1,6 +1,6 @@
 ;;; quail.el --- provides simple input method for multilingual text  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-1998, 2000-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2000-2025 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -772,8 +772,7 @@ you type is correctly handled."
 
 (defun quail-keyseq-translate (keyseq)
   (apply 'string
-         (mapcar (lambda (x) (quail-keyboard-translate x))
-		 keyseq)))
+         (mapcar #'quail-keyboard-translate keyseq)))
 
 (defun quail-insert-kbd-layout (kbd-layout)
   "Insert the visual keyboard layout table according to KBD-LAYOUT.
@@ -836,6 +835,8 @@ The format of KBD-LAYOUT is the same as `quail-keyboard-layout'."
                                       (format "\t%c\t" upper))
                     (string upper))))
 	(insert (bidi-string-mark-left-to-right lower)
+                ;; This invisible space is here to prevent the display
+                ;; engine from composing these two characters on display.
 		(propertize " " 'invisible t)
 		(bidi-string-mark-left-to-right upper))
 	(if (< (string-width upper) 2)
@@ -2134,19 +2135,21 @@ minibuffer and the selected frame has no other windows)."
     (let ((guidance (quail-guidance)))
       (if (listp guidance)
 	  ;; We must replace the typed key with the specified PROMPT-KEY.
-	  (dotimes (i (length str))
-	    (let ((prompt-key (cdr (assoc (aref str i) guidance))))
-	      (if prompt-key
-		  (aset str i (aref prompt-key 0)))))))
+          (setq str (apply #'string
+                           (mapcar
+                            (lambda (c)
+	                      (let ((prompt-key (assq c guidance)))
+	                        (if prompt-key
+		                    (aref (cdr prompt-key) 0)
+                                  c)))
+                            str)))))
 
       ;; Show followable keys.
       (if (and (> (length quail-current-key) 0) (cdr map))
 	  (setq str
 		(format "%s[%s]"
 			str
-                        (concat (sort (mapcar (lambda (x) (car x))
-					      (cdr map))
-				      '<)))))
+                        (concat (sort (mapcar #'car (cdr map)) #'<)))))
       ;; Show list of translations.
       (if (and quail-current-translations
 	       (not (quail-deterministic)))
@@ -2422,10 +2425,10 @@ should be made by `quail-build-decode-map' (which see)."
                    (let ((last-col-elt (or (nth (1- (* (1+ col) newrows))
                                                 single-list)
                                            (car (last single-list)))))
-                     (cl-incf width (+ (max 3 (length (car last-col-elt)))
+                     (incf width (+ (max 3 (length (car last-col-elt)))
                                        1 single-trans-width 1))))
                  (< width window-width))
-          (cl-incf cols))
+          (incf cols))
         (setq rows (/ (+ len cols -1) cols)) ;Round up.
         (let ((key-width (max 3 (length (car (nth (1- rows) single-list))))))
           (insert "key")
@@ -2494,11 +2497,11 @@ should be made by `quail-build-decode-map' (which see)."
                    (help-setup-xref `(quail-keyboard-layout-button ,layout)
                                     nil)
                    (quail-show-keyboard-layout layout))
-  'help-echo (purecopy "mouse-2, RET: show keyboard layout"))
+  'help-echo "mouse-2, RET: show keyboard layout")
 
 (define-button-type 'quail-keyboard-customize-button
   :supertype 'help-customize-variable
-  'help-echo (purecopy "mouse-2, RET: customize keyboard layout"))
+  'help-echo "mouse-2, RET: customize keyboard layout")
 
 (defun quail-help (&optional package)
   "Show brief description of the current Quail package.
@@ -2617,6 +2620,7 @@ KEY BINDINGS FOR TRANSLATION
 KEY BINDINGS FOR CONVERSION
 ---------------------------\n"))
       (setq quail-current-package nil)
+      (set-buffer-modified-p nil)
       ;; Resize the help window again, now that it has all its contents.
       (save-selected-window
  	(select-window (get-buffer-window (current-buffer) t))

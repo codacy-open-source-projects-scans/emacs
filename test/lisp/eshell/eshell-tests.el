@@ -1,6 +1,6 @@
 ;;; eshell-tests.el --- Eshell test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2025 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -28,11 +28,10 @@
 (require 'ert)
 (require 'ert-x)
 (require 'esh-mode)
+(require 'ert-x)
 (require 'eshell)
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defvar eshell-test-value nil)
 (defvar eshell-command-output)

@@ -1,6 +1,6 @@
 ;;; keymap.el --- Keymap functions  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -39,7 +39,7 @@
   (dolist (key keys)
     (when (or (vectorp key)
               (and (stringp key) (not (key-valid-p key))))
-      (byte-compile-warn "Invalid `kbd' syntax: %S" key))))
+      (byte-compile-warn "Invalid `key-valid-p' syntax: %S" key))))
 
 (defun keymap-set (keymap key definition)
   "Set KEY to DEFINITION in KEYMAP.
@@ -60,7 +60,11 @@ DEFINITION is anything that can be a key's definition:
     keymap has been created with a menu name, see `make-keymap'),
  or a cons (MAP . CHAR), meaning use definition of CHAR in keymap MAP,
  or an extended menu item definition.
- (See info node `(elisp)Extended Menu Items'.)"
+ (See info node `(elisp)Extended Menu Items'.)
+
+The `key-description' convenience function converts a simple
+string of characters to an equivalent form that is acceptable for
+COMMAND."
   (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (keymap--check key)
   ;; If we're binding this key to another key, then parse that other
@@ -327,21 +331,29 @@ KEYS should be a string consisting of one or more key strokes,
 with a single space character separating one key stroke from another.
 
 Each key stroke is either a single character, or the name of an
-event, surrounded by angle brackets <like-this>.  In addition, any
-key stroke may be preceded by one or more modifier keys.  Finally,
-a limited number of characters have a special shorthand syntax.
+event, surrounded by angle brackets <like-this>.  An event may be
+pushing a key, clicking on a menu item, pressing a mouse button, etc.
+In addition, any key stroke may be preceded by one or more modifier
+keys.  Finally, a limited number of characters have a special shorthand
+syntax.
 
 Here are some example of valid key sequences.
 
   \"f\"           (the key `f')
+  \"<f6>\"        (the function key named \"F6\")
+  \"<mouse-1>\"   (the mouse button named \"mouse-1\", commonly referred to as
+                 the left button)
   \"S o m\"       (a three-key sequence of the keys `S', `o' and `m')
   \"C-c o\"       (a two-key sequence: the key `c' with the control modifier
                  followed by the key `o')
-  \"H-<left>\"    (the function key named \"left\" with the hyper modifier)
+  \"H-<left>\"    (the cursor control key named \"left\" with the hyper modifier)
+  \"RET\"         (the \"return\" key, also available as \"C-m\")
+  \"<return>\"    (the \"<return>\" function key, which can be bound separately
+                 from \"RET\" on some systems)
   \"M-RET\"       (the \"return\" key with a meta modifier)
   \"C-M-<space>\" (the \"space\" key with both the control and meta modifiers)
 
-These are the characters that have special shorthand syntax:
+These characters have special shorthand syntax:
 NUL, RET, TAB, LFD, ESC, SPC, DEL.
 
 Modifiers have to be specified in this order:
@@ -573,7 +585,7 @@ If MESSAGE (and interactively), message the result."
     (let* ((wargs args)
            (key (pop args)))
       (when (and (stringp key) (not (key-valid-p key)))
-        (byte-compile-warn-x wargs "Invalid `kbd' syntax: %S" key)))
+        (byte-compile-warn-x wargs "Invalid `key-valid-p' syntax: %S" key)))
     (when (null args)
       (byte-compile-warn-x form "Uneven number of key bindings in %S" form))
     (setq args (cdr args)))
@@ -602,9 +614,11 @@ pairs.  Available keywords are:
 :name      If non-nil, this should be a string to use as the menu for
              the keymap in case you use it as a menu with `x-popup-menu'.
 
-:prefix    If non-nil, this should be a symbol to be used as a prefix
-             command (see `define-prefix-command').  If this is the case,
-             this symbol is returned instead of the map itself.
+:prefix    If non-nil, this should be a symbol to make into a prefix command
+             using the new keymap (see `define-prefix-command').
+             That is, store the keymap as the symbol's function definition.
+             In addition, when non-nil, return the symbol instead of the
+             new keymap.
 
 KEY/DEFINITION pairs are as KEY and DEF in `keymap-set'.  KEY can
 also be the special symbol `:menu', in which case DEFINITION
@@ -677,6 +691,9 @@ In addition to the keywords accepted by `define-keymap', this
 macro also accepts a `:doc' keyword, which (if present) is used
 as the variable documentation string.
 
+The `:prefix' keyword can take an additional value, t, which is an
+abbreviation for using VARIABLE-NAME as the prefix command name.
+
 The `:repeat' keyword can also be specified; it controls the
 `repeat-mode' behavior of the bindings in the keymap.  When it is
 non-nil, all commands in the map will have the `repeat-map'
@@ -722,10 +739,17 @@ in the echo area.
         (unless defs
           (error "Uneven number of keywords"))
         (cond
-         ((eq keyword :doc) (setq doc (pop defs)))
-         ((eq keyword :repeat) (setq repeat (pop defs)))
-         (t (push keyword opts)
-            (push (pop defs) opts)))))
+         ((eq keyword :doc)
+          (setq doc (pop defs)))
+         ((eq keyword :repeat)
+          (setq repeat (pop defs)))
+         ((and (eq keyword :prefix) (eq (car defs) t))
+          (setq defs (cdr defs))
+          (push keyword opts)
+          (push `',variable-name opts))
+         (t
+          (push keyword opts)
+          (push (pop defs) opts)))))
     (unless (zerop (% (length defs) 2))
       (error "Uneven number of key/definition pairs: %s" defs))
 
@@ -746,8 +770,10 @@ in the echo area.
         (dolist (def (plist-get repeat :enter))
           (push `(put ',def 'repeat-map ',variable-name) props))
         (dolist (def (plist-get repeat :continue))
-          (push `(put ',def 'repeat-continue
-                      (cons ',variable-name (get ',def 'repeat-continue)))
+          (push `(let ((val (get ',def 'repeat-continue)))
+                   (when (listp val)
+                     (put ',def 'repeat-continue
+                          (cons ',variable-name val))))
                 props))
         (while defs
           (pop defs)
@@ -772,6 +798,22 @@ in the echo area.
   "Mark SYMBOL as an event that shouldn't be returned from `where-is'."
   (put symbol 'non-key-event t)
   symbol)
+
+
+
+(defun keymap--read-only-filter (cmd)
+  "Return CMD if `browse-url' and similar button bindings should be active.
+They are considered active only in read-only buffers."
+  (when buffer-read-only cmd))
+
+(defun keymap-read-only-bind (binding)
+  "Behave like BINDING, but only when the buffer is read-only.
+BINDING should be a command to pput in a keymap.
+Return an element that can be added in a keymap with `keymap-set', such that
+it is active only when the current buffer is read-only."
+  `(menu-item
+    "" ,binding
+    :filter ,#'keymap--read-only-filter))
 
 (provide 'keymap)
 

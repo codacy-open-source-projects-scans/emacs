@@ -1,6 +1,6 @@
 ;;; erc-tests-common.el --- Common helpers for ERC tests -*- lexical-binding: t -*-
 
-;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -64,18 +64,23 @@ Assume caller intends to use `erc-display-message'."
   (should (= (point) erc-input-marker)))
 
 (defun erc-tests-common-init-server-proc (&rest args)
-  "Create a process with `start-process' from ARGS.
+  "Create a non-network process from ARGS with `make-process'.
 Assign the result to `erc-server-process' in the current buffer."
   (setq erc-server-process
-        (apply #'start-process (car args) (current-buffer) args))
-  (set-process-query-on-exit-flag erc-server-process nil)
-  erc-server-process)
+        (make-process :name (car args)
+                      :buffer (current-buffer)
+                      :command args
+                      :connection-type 'pipe
+                      :noquery t)))
 
 ;; After dropping support for Emacs 27, callers can use
 ;; `get-buffer-create' with INHIBIT-BUFFER-HOOKS.
 (defun erc-tests-common-kill-buffers (&rest extra-buffers)
   "Kill all ERC buffers and possibly EXTRA-BUFFERS."
-  (let (erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook)
+  (let (erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook
+        ;; To facilitate automatic testing when a fake-server has already
+	;; been created by an earlier ERT test.
+	(kill-buffer-query-functions nil))
     (dolist (buf (erc-buffer-list))
       (kill-buffer buf))
     (named-let doit ((buffers extra-buffers))
@@ -127,7 +132,10 @@ Use NAME for the network and the session server as well."
           erc--isupport-params (make-hash-table)
           erc-session-port 6667
           erc-network (intern name)
-          erc-networks--id (erc-networks--id-create name))
+          erc-server-current-nick "tester"
+          ;; Derive ID from nick and network.  To create a "given"
+          ;; variant, override manually with a non-nil argument.
+          erc-networks--id (erc-networks--id-create nil))
     (current-buffer)))
 
 (defun erc-tests-common-string-to-propertized-parts (string)
@@ -288,18 +296,13 @@ string."
          (got (erc--remove-text-properties
                (buffer-substring (point-min) erc-insert-marker)))
          (repr (funcall (or trans-fn #'identity) (prin1-to-string got)))
-         (xstr (read (with-temp-buffer
-                       (insert-file-contents-literally expect-file)
-                       (buffer-string)))))
+         ;;
+         xstr)
     (with-current-buffer (generate-new-buffer name)
       (with-silent-modifications
         (insert (setq got (read repr))))
       (when buf-init-fn (funcall buf-init-fn))
       (erc-mode))
-    (unless noninteractive
-      (with-current-buffer (generate-new-buffer (format "%s-xpt" name))
-        (insert xstr)
-        (erc-mode)))
     ;; LHS is a string, RHS is a symbol.
     (if (string= erc-tests-common-snapshot-save-p
                  (ert-test-name (ert-running-test)))
@@ -308,6 +311,13 @@ string."
             (insert repr))
           ;; Limit writing snapshots to one test at a time.
           (message "erc-tests-common-snapshot-compare: wrote %S" expect-file))
+      (setq xstr (read (with-temp-buffer
+                         (insert-file-contents-literally expect-file)
+                         (buffer-string))))
+      (unless noninteractive
+        (with-current-buffer (generate-new-buffer (format "%s-xpt" name))
+          (insert xstr)
+          (erc-mode)))
       (if (file-exists-p expect-file)
           ;; Ensure string-valued properties, like timestamps, aren't
           ;; recursive (signals `max-lisp-eval-depth' exceeded).
@@ -356,15 +366,17 @@ interspersing \"-l\" between members."
              (require 'erc)
              (cl-assert (equal erc-version ,erc-version) t)
              ,code))
-         (proc (apply #'start-process
-                      (symbol-name (ert-test-name (ert-running-test)))
-                      (current-buffer)
-                      (concat invocation-directory invocation-name)
-                      `(,@(or init '("-Q"))
-                        ,@switches
-                        ,@(mapcan (lambda (f) (list "-l" f)) libs)
-                        "-eval" ,(format "%S" prog)))))
-    (set-process-query-on-exit-flag proc t)
+         (proc (make-process
+                :name (symbol-name (ert-test-name (ert-running-test)))
+                :buffer (current-buffer)
+                :command `(,(concat invocation-directory invocation-name)
+                           ,@(or init '("-Q"))
+                           ,@switches
+                           ,@(mapcan (lambda (f) (list "-l" f)) libs)
+                           "-eval" ,(format "%S" prog))
+                :connection-type 'pipe
+                :stderr (messages-buffer)
+                :noquery t)))
     proc))
 
 (declare-function erc-track--setup "erc-track" ())
@@ -409,5 +421,42 @@ faces in the reverse order they appear in an inserted message."
                (hash-table-count erc-track--normal-faces)))
 
     (funcall test (lambda (arg) (setq faces arg)))))
+
+;; To use this function, add something like
+;;
+;;   ("lisp/erc"
+;;    (emacs-lisp-mode (eval erc-tests-common-add-imenu-expressions)))
+;;
+;; to your ~/emacs/master/.dir-locals-2.el.  Optionally, add the sexp
+;;
+;;   (erc-tests-common-add-imenu-expressions)
+;;
+;; to the user option `safe-local-eval-forms', and load this file before
+;; hacking, possibly by autoloading this function in your init.el.
+(defun erc-tests-common-add-imenu-expressions (&optional removep)
+  "Tell `imenu' about ERC-defined macros.  With REMOVEP, do the opposite."
+  (interactive "P")
+  ;; This currently produces results like "ERC response FOO BAR", but it
+  ;; would be preferable to end up with "erc-response-FOO" and
+  ;; "erc-response-BAR" instead, possibly as separate items.  Likewise
+  ;; for modules: "erc-foo-mode" instead of "ERC module foo".
+  (dolist (item `(("ERC response"
+                   ,(rx bol (* (syntax whitespace))
+                        "(define-erc-response-handler (" (group (+ nonl)) ")")
+                   1)
+                  ("ERC module"
+                   ,(rx bol (* (syntax whitespace))
+                        ;; No `lisp-mode-symbol' in < Emacs 29.
+                        "(define-erc-module " (group (+ (| (syntax word)
+                                                           (syntax symbol)
+                                                           (: "\\" nonl)))))
+                   1)))
+    ;; This should only run in `emacs-lisp-mode' buffers, which have
+    ;; this variable set locally.
+    (cl-assert (local-variable-p 'imenu-generic-expression))
+    (if removep
+        (setq imenu-generic-expression
+              (remove item imenu-generic-expression))
+      (cl-pushnew item imenu-generic-expression :test #'equal))))
 
 (provide 'erc-tests-common)

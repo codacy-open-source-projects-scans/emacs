@@ -1,6 +1,6 @@
 ;;; sgml-mode.el --- SGML- and HTML-editing modes -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992, 1995-1996, 1998, 2001-2024 Free Software
+;; Copyright (C) 1992, 1995-1996, 1998, 2001-2025 Free Software
 ;; Foundation, Inc.
 
 ;; Author: James Clark <jjc@jclark.com>
@@ -667,7 +667,11 @@ Do \\[describe-key] on the following bindings to discover what they do.
 	   ,(concat "<[^>]+[ \t\n]+[Nn][Aa][Mm][Ee]=\\(['\"]"
 		    (if sgml-xml-mode "" "?")
 		    "\\)\\(" sgml-name-re "\\)\\1")
-	   2))))
+	   2)))
+  (setq-local hs-block-start-regexp "<[^/>]*?")
+  (setq-local hs-block-end-regexp "</[^/>]*[^/]>")
+  (setq-local hs-c-start-regexp "<!--")
+  (setq-local hs-forward-sexp-func #'sgml-skip-tag-forward))
 
 (defun sgml-comment-indent ()
   (if (looking-at "--") comment-column 0))

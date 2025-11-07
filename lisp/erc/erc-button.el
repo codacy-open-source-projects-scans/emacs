@@ -1,6 +1,6 @@
 ;;; erc-button.el --- A way of buttonizing certain things in ERC buffers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2004, 2006-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2004, 2006-2025 Free Software Foundation, Inc.
 
 ;; Author: Mario Lang <mlang@delysid.org>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -219,7 +219,7 @@ PAR is a number of a regexp grouping whose text will be passed to
   :version "28.1")
 
 (defcustom erc-emacswiki-lisp-url "https://www.emacswiki.org/elisp/"
-  "URL of the EmacsWiki ELisp area."
+  "URL of the EmacsWiki Elisp area."
   :type 'string)
 
 (defvar erc-button-highlight-nick-once '(QUIT PART JOIN)

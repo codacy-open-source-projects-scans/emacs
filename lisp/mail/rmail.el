@@ -1,6 +1,6 @@
 ;;; rmail.el --- main code of "RMAIL" mail reader for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1988, 1993-1998, 2000-2024 Free Software
+;; Copyright (C) 1985-1988, 1993-1998, 2000-2025 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -152,7 +152,7 @@ its character representation and its display representation.")
   :group 'rmail)
 
 ;;;###autoload
-(defcustom rmail-file-name (purecopy "~/RMAIL")
+(defcustom rmail-file-name "~/RMAIL"
   "Name of user's primary mail file."
   :type 'string
   :group 'rmail
@@ -160,7 +160,6 @@ its character representation and its display representation.")
 
 ;;;###autoload
 (defcustom rmail-spool-directory
-  (purecopy
   (cond ((file-exists-p "/var/mail")
 	 ;; SVR4 and recent BSD are said to use this.
 	 ;; Rather than trying to know precisely which systems use it,
@@ -169,7 +168,7 @@ its character representation and its display representation.")
 	;; Many GNU/Linux systems use this name.
 	((file-exists-p "/var/spool/mail") "/var/spool/mail/")
 	((memq system-type '(hpux usg-unix-v)) "/usr/mail/")
-	(t "/usr/spool/mail/")))
+        (t "/usr/spool/mail/"))
   "Name of directory used by system mailer for delivering new mail.
 Its name should end with a slash."
   :initialize #'custom-initialize-delay
@@ -177,7 +176,10 @@ Its name should end with a slash."
   :group 'rmail)
 
 (defcustom rmail-movemail-program nil
-  "If non-nil, the file name of the `movemail' program."
+  "If non-nil, the file name of the `movemail' program.
+If you customize this after starting Rmail, reset the
+variable `rmail-movemail-variant-in-use' to the nil value,
+and then restart Rmail."
   :group 'rmail-retrieve
   :type '(choice (const nil) string))
 
@@ -316,7 +318,6 @@ Setting this variable has an effect only before reading a mail."
 
 ;;;###autoload
 (defcustom rmail-ignored-headers
-  (purecopy
   (concat "^via:\\|^mail-from:\\|^origin:\\|^references:\\|^sender:"
 	  "\\|^status:\\|^received:\\|^x400-originator:\\|^x400-recipients:"
 	  "\\|^x400-received:\\|^x400-mts-identifier:\\|^x400-content-type:"
@@ -336,7 +337,7 @@ Setting this variable has an effect only before reading a mail."
 	  "\\|^Received-SPF:"
 	  "\\|^Authentication-Results:"
 	  "\\|^resent-face:\\|^resent-x.*:\\|^resent-organization:\\|^resent-openpgp:"
-	  "\\|^x-.*:"))
+          "\\|^x-.*:")
   "Regexp to match header fields that Rmail should normally hide.
 \(See also `rmail-nonignored-headers', which overrides this regexp.)
 This variable is used for reformatting the message header,
@@ -385,7 +386,7 @@ If nil, display all header fields except those matched by
   :version "29.1")
 
 ;;;###autoload
-(defcustom rmail-highlighted-headers (purecopy "^From:\\|^Subject:")
+(defcustom rmail-highlighted-headers "^From:\\|^Subject:"
   "Regexp to match Header fields that Rmail should normally highlight.
 A value of nil means don't highlight.  Uses the face `rmail-highlight'."
   :type '(choice regexp (const :tag "None" nil))
@@ -436,12 +437,12 @@ the frame where you have the RMAIL buffer displayed."
   :group 'rmail-reply)
 
 ;;;###autoload
-(defcustom rmail-secondary-file-directory (purecopy "~/")
+(defcustom rmail-secondary-file-directory "~/"
   "Directory for additional secondary Rmail files."
   :type 'directory
   :group 'rmail-files)
 ;;;###autoload
-(defcustom rmail-secondary-file-regexp (purecopy "\\.xmail\\'")
+(defcustom rmail-secondary-file-regexp "\\.xmail\\'"
   "Regexp for which files are secondary Rmail files."
   :type 'regexp
   :group 'rmail-files)
@@ -527,22 +528,27 @@ Examples:
 (defvar rmail-reply-prefix "Re: "
   "String to prepend to Subject line when replying to a message.")
 
-;; Note: this is matched with case-fold-search bound to t.
-(defcustom rmail-re-abbrevs
-  "\\(RE\\|رد\\|回复\\|回覆\\|SV\\|Antw\\|VS\\|REF\\|AW\\|ΑΠ\\|ΣΧΕΤ\\|השב\\|Vá\\|R\\|RIF\\|BLS\\|RES\\|Odp\\|YNT\\|ATB\\)"
-  "Regexp with localized \"Re:\" abbreviations in various languages."
-  :version "28.1"
-  :type 'regexp)
+(defvar rmail-reply-regexp nil ;; set by `rmail-re-abbrevs
+  "Regexp to delete from Subject line before inserting `rmail-reply-prefix'.")
 
 ;; Some mailers use "Re(2):" or "Re^2:" or "Re: Re:" or "Re[2]:".
 ;; This pattern should catch all the common variants.
 ;; rms: I deleted the change to delete tags in square brackets
 ;; because they mess up RT tags.
-(defvar rmail-reply-regexp
-  (concat "\\`\\("
-          rmail-re-abbrevs
-          "\\(([0-9]+)\\|\\[[0-9]+\\]\\|\\^[0-9]+\\)?\u00a0*[:：] *\\)*")
-  "Regexp to delete from Subject line before inserting `rmail-reply-prefix'.")
+;; Note: this is matched with case-fold-search bound to t.
+(defcustom rmail-re-abbrevs
+  (concat "\\("
+          (string-join mail-re-regexps "\\|")
+          "\\)")
+  "Regexp with localized \"Re\" abbreviations in various languages.
+Matching is done case-insensitively.
+Initialized from `mail-re-regexps', which is easier to customize."
+  :set-after '(mail-re-regexps)
+  :set (lambda (sym val)
+         (custom-set-default sym val)
+         (setq rmail-reply-regexp (mail--wrap-re-regexp val)))
+  :type 'regexp
+  :version "31.1")
 
 (defcustom rmail-display-summary nil
   "If non-nil, Rmail always displays the summary buffer."
@@ -2747,6 +2753,64 @@ See also `unrmail-mbox-format'."
   :group 'rmail
   :version "28.1")
 
+(defcustom rmail-detect-suspicious-headers t
+  "If non-nil, detect and highlight suspicious email addresses in Rmail buffer.
+Currently, only the From address is checked."
+  :type 'boolean
+  :version "31.1"
+  :group 'rmail
+  :group 'security)
+
+(defun rmail-check-suspicious-from ()
+  "Look for suspicious email addresses in message headers; highlight if found.
+This checks the From header of the email message using `textsec-suspicious-p',
+and if a suspicious address is found, highlights it with a specialized
+face.
+
+Should be called with point at the beginning of the message."
+  (save-excursion
+    (search-forward "\n\n" nil 'move)
+    (save-restriction
+      (narrow-to-region (point-min) (point))
+      (goto-char (point-min))
+      (let ((case-fold-search t)
+	    (inhibit-read-only t)
+            (overlays rmail-overlay-list))
+	(when (re-search-forward "^From:" nil t)
+          (skip-chars-forward " \t")
+          (let ((beg (point))
+                end from overlay)
+            (while (progn (forward-line 1)
+                          (looking-at "[ \t]")))
+            ;; Back up over newline, then trailing spaces or tabs
+	    (forward-char -1)
+	    (skip-chars-backward " \t" beg)
+            (setq end (point)
+                  ;; RFC 2047 encode to escape quotes and other
+                  ;; problematic characters.
+                  from (rfc2047-encode-string
+                        (buffer-substring-no-properties beg end)))
+            ;; Is "From" address suspicious?  If yes, make it stand out.
+	    (when-let* ((warning (textsec-suspicious-p
+                                  from 'email-address-header)))
+	      (if overlays
+		  ;; Reuse an overlay we already have.
+		  (progn
+		    (setq overlay (car overlays)
+			  overlays (cdr overlays))
+		    (overlay-put overlay 'face 'textsec-suspicious)
+                    ;; Override any other faces
+                    (overlay-put overlay 'priority 100)
+		    (move-overlay overlay beg end))
+		  ;; Make a new overlay and add it to
+		  ;; rmail-overlay-list.
+		  (setq overlay (make-overlay beg end))
+		  (overlay-put overlay 'face 'textsec-suspicious)
+                  (overlay-put overlay 'priority 100)
+		  (setq rmail-overlay-list
+			(cons overlay rmail-overlay-list)))
+              (insert (propertize "⚠️" 'help-echo warning)))))))))
+
 (defun rmail-show-message-1 (&optional msg)
   "Show message MSG (default: current message) using `rmail-view-buffer'.
 Return text to display in the minibuffer if MSG is out of
@@ -2876,6 +2940,8 @@ The current mail message becomes the message displayed."
 	  (rmail-highlight-headers)
 					;(rmail-activate-urls)
 					;(rmail-process-quoted-material)
+          (if rmail-detect-suspicious-headers
+              (rmail-check-suspicious-from))
 	  )
 	;; Update the mode-line with message status information and swap
 	;; the view buffer/mail buffer contents.
@@ -4509,6 +4575,11 @@ TEXT and INDENT are not used."
 ;; to "prying eyes."  Obviously, this encoding isn't "real security,"
 ;; nor is it meant to be.
 
+(defvar rmail--remote-password-host nil
+  "Last recorded value of the HOST argument to `rmail-get-remote-password'.")
+(defvar rmail--remote-password-user nil
+  "Last recorded value of the USER argument to `rmail-get-remote-password'.")
+
 ;;;###autoload
 (defun rmail-set-remote-password (password)
   "Set PASSWORD to be used for retrieving mail from a POP or IMAP server."
@@ -4529,7 +4600,12 @@ machine mymachine login myloginname password mypassword
 
 If auth-source search yields no result, prompt the user for the
 password."
-  (when (not rmail-encoded-remote-password)
+  (when (or (not rmail-encoded-remote-password)
+            (not (equal user rmail--remote-password-user))
+            (not (equal host rmail--remote-password-host)))
+    ;; Record the values we will be using from now on.
+    (setq rmail--remote-password-host host
+          rmail--remote-password-user user)
     (if (not rmail-remote-password)
         (setq rmail-remote-password
               (let ((found (nth 0 (auth-source-search

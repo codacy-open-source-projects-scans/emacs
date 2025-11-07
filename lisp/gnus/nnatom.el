@@ -1,6 +1,6 @@
 ;;; nnatom.el --- Atom backend for Gnus -*- lexical-binding: t -*-
 
-;; Copyright (C) 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2023, 2025 Free Software Foundation, Inc.
 ;; Author: Daniel Semyonov <daniel@dsemy.com>
 
 ;; This file is part of GNU Emacs.
@@ -110,7 +110,8 @@
 
 (defun nnatom--dom-line (node)
   "Return NODE's text as a single, whitespace-trimmed line."
-  (string-trim (replace-regexp-in-string "[\r\n]+" " " (dom-text node) t)))
+  (string-trim (replace-regexp-in-string
+                "[\r\n]+" " " (dom-inner-text node) t)))
 
 (defun nnatom--read-title (group)
   "Return the title of GROUP, or nil."
@@ -183,7 +184,7 @@ return the subject.  Otherwise, return nil."
           (when-let* (((eq l 'content))
                       (src (dom-attr link 'src))
                       (label (concat "Link"
-                                     (and (< 1 (cl-incf alt))
+                                     (and (< 1 (incf alt))
                                           (format " %s" alt)))))
             `(((("text/plain") . ,(format "%s: %s\n" label src))
                (("text/html") . ,(format "<a href=\"%s\">[%s]</a> "
@@ -192,7 +193,7 @@ return the subject.  Otherwise, return nil."
                       (name (nnatom--dom-line (dom-child-by-tag link 'name)))
                       (name (if (string-blank-p name)
                                 (concat "Author"
-                                        (and (< 1 (cl-incf aut))
+                                        (and (< 1 (incf aut))
                                              (format " %s" aut)))
                               name))
                       (uri (nnatom--dom-line (dom-child-by-tag link 'uri)))
@@ -206,26 +207,26 @@ return the subject.  Otherwise, return nil."
                                  (pcase (cdr (assq 'rel attrs))
                                    ("related"
                                     (concat "Related"
-                                            (and (< 1 (cl-incf rel))
+                                            (and (< 1 (incf rel))
                                                  (format " %s" rel))))
                                    ("self"
                                     (concat "More"
-                                            (and (< 1 (cl-incf sel))
+                                            (and (< 1 (incf sel))
                                                  (format " %s" sel))))
                                    ("enclosure"
                                     (concat "Enclosure"
-                                            (and (< 1 (cl-incf enc))
+                                            (and (< 1 (incf enc))
                                                  (format " %s" enc))))
                                    ("via"
                                     (concat "Source"
-                                            (and (< 1 (cl-incf via))
+                                            (and (< 1 (incf via))
                                                  (format " %s" via))))
                                    (_ (if-let*
                                           ((lang (cdr (assq 'hreflang link))))
                                           (format "Link (%s)" lang)
                                         (concat
                                          "Link"
-                                         (and (< 1 (cl-incf alt))
+                                         (and (< 1 (incf alt))
                                               (format " %s" alt))))))))
                       (link (cdr (assq 'href attrs))))
             `(((("text/plain") . ,(format "%s: %s\n" label link))
@@ -245,7 +246,7 @@ return the subject.  Otherwise, return nil."
                      (dom-print (dom-child-by-tag part 'div) nil t)
                      (buffer-substring-no-properties
                       (point-min) (point-max)))
-                 (dom-text part)))
+                 (dom-inner-text part)))
          (type (if (member type atypes) (concat "text/" type) type))
          (type (or (cdr (assoc type mtypes)) type)))
     (unless (string-blank-p part)

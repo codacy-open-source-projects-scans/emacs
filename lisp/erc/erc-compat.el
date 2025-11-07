@@ -1,6 +1,6 @@
 ;;; erc-compat.el --- ERC compatibility code for older Emacsen  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2003, 2005-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2003, 2005-2025 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -367,6 +367,15 @@ If START or END is negative, it counts from the end."
     (sasl-client-set-property client 'auth-message auth-message)
     (sasl-client-set-property client 'salted-password salted-password)
     client-final-message))
+
+
+;;;; Misc 28.1
+
+(defmacro erc-compat--xml-escape-string (string &optional noerror)
+  "Call `xml-escape-string' with NO-ERROR if supported."
+  (if (>= emacs-major-version 28)
+      `(xml-escape-string ,string ,noerror)
+    `(xml-escape-string ,string)))
 
 
 ;;;; Misc 29.1

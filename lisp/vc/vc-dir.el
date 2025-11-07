@@ -1,6 +1,6 @@
 ;;; vc-dir.el --- Directory status display under VC  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
 
 ;; Author: Dan Nicolaescu <dann@ics.uci.edu>
 ;; Keywords: vc tools
@@ -44,7 +44,7 @@
 (require 'seq)
 
 ;;; Code:
-(eval-when-compile (require 'cl-lib))
+(require 'cl-lib)
 
 (declare-function fileloop-continue "fileloop")
 
@@ -55,47 +55,47 @@ See `run-hooks'."
   :group 'vc)
 
 (defface vc-dir-header '((t :inherit font-lock-type-face))
-  "Face for headers in VC-dir buffers."
+  "Face for headers in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-header-value '((t :inherit font-lock-variable-name-face))
-  "Face for header values in VC-dir buffers."
+  "Face for header values in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-directory '((t :inherit font-lock-comment-delimiter-face))
-  "Face for directories in VC-dir buffers."
+  "Face for directories in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-file '((t :inherit font-lock-function-name-face))
-  "Face for files in VC-dir buffers."
+  "Face for files in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-mark-indicator '((t :inherit font-lock-type-face))
-  "Face for mark indicators in VC-dir buffers."
+  "Face for mark indicators in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-status-warning '((t :inherit font-lock-warning-face))
-  "Face for warning status in VC-dir buffers."
+  "Face for warning status in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-status-edited '((t :inherit font-lock-variable-name-face))
-  "Face for edited status in VC-dir buffers."
+  "Face for edited status in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-status-up-to-date '((t :inherit font-lock-builtin-face))
-  "Face for up-to-date status in VC-dir buffers."
+  "Face for up-to-date status in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
 (defface vc-dir-status-ignored '((t :inherit shadow))
-  "Face for ignored or empty values in VC-dir buffers."
+  "Face for ignored or empty values in VC-Dir buffers."
   :group 'vc
   :version "28.1")
 
@@ -126,6 +126,52 @@ See `run-hooks'."
 (defvar vc-dir-backend nil
   "The backend used by the current *vc-dir* buffer.")
 
+(defcustom vc-dir-allow-mass-mark-changes 'ask
+  "If non-nil, VC-Dir commands may mark or unmark many items at once.
+
+When a directory in VC-Dir is marked, then for most VCS, this means that
+all files within it are implicitly marked as well.
+For consistency, the mark and unmark commands (principally \\<vc-dir-mode-map>\\[vc-dir-mark] and \\[vc-dir-unmark]) will
+not explicitly mark or unmark entries if doing so would result in a
+situation where both a directory and a file or directory within it are
+both marked.
+
+With the default value of this variable, `ask', if you attempt to mark
+or unmark a particular item and doing so consistent with these
+restrictions would require other items to be marked or unmarked too,
+Emacs will prompt you to confirm that you do mean for the other items to
+be marked or unmarked.
+
+If this variable is nil, the commands will refuse to do anything if they
+would need to mark or unmark other entries too.
+If this variable is any other non-nil value, the commands will always
+proceed to mark and unmark other entries, without asking.
+
+There is one operation where marking or unmarking other entries in order
+to mark or unmark the entry at point is unlikely to be surprising:
+when you use \\[vc-dir-mark] on a directory which already has marked items within it.
+In this case, the subitems are unmarked regardless of the value of this
+option."
+  :type '(choice (const :tag "Don't allow" nil)
+                 (const :tag "Prompt to allow" ask)
+                 (const :tag "Allow without prompting" t))
+  :group 'vc
+  :version "31.1")
+
+(defcustom vc-dir-hide-up-to-date-on-revert nil
+  "If non-nil, \\<vc-dir-mode-map>\\[revert-buffer] in VC-Dir buffers also does \\[vc-dir-hide-up-to-date].
+That is, refreshing the VC-Dir buffer also hides `up-to-date' and
+`ignored' items."
+  :type 'boolean
+  :group 'vc
+  :version "31.1")
+
+(defcustom vc-dir-save-some-buffers-on-revert nil
+  "If non-nil, first offer to save relevant buffers when refreshing VC-Dir."
+  :type 'boolean
+  :group 'vc
+  :version "31.1")
+
 (defun vc-dir-move-to-goal-column ()
   ;; Used to keep the cursor on the file name column.
   (beginning-of-line)
@@ -148,7 +194,7 @@ See `run-hooks'."
                       (cl-return buffer))))))))
     (or buf
         ;; Create a new buffer named BNAME.
-	;; We pass a filename to create-file-buffer because it is what
+	;; We pass a filename to `create-file-buffer' because it is what
 	;; the function expects, and also what uniquify needs (if active)
         (with-current-buffer (create-file-buffer (expand-file-name bname dir))
           (setq default-directory dir)
@@ -307,7 +353,6 @@ See `run-hooks'."
     (define-key map "D" #'vc-root-diff)	   ;; C-x v D
     (define-key map "i" #'vc-register)	   ;; C-x v i
     (define-key map "+" #'vc-pull)	   ;; C-x v +
-    ;; I'd prefer some kind of symmetry with vc-pull:
     (define-key map "P" #'vc-push)	   ;; C-x v P
     (define-key map "l" #'vc-print-log)	   ;; C-x v l
     (define-key map "L" #'vc-print-root-log) ;; C-x v L
@@ -378,6 +423,10 @@ See `run-hooks'."
     map)
   "Keymap for directory buffer.")
 
+(when vc-use-incoming-outgoing-prefixes
+  (keymap-set vc-dir-mode-map "I" vc-incoming-prefix-map)
+  (keymap-set vc-dir-mode-map "O" vc-outgoing-prefix-map))
+
 (defmacro vc-dir-at-event (event &rest body)
   "Evaluate BODY with point located at `event-start' of EVENT.
 If BODY uses EVENT, it should be a variable,
@@ -441,9 +490,11 @@ If BODY uses EVENT, it should be a variable,
 	   (vc-dir-fileinfo->name data)))))))
 
 (defun vc-dir-update (entries buffer &optional noinsert)
-  "Update BUFFER's ewoc from the list of ENTRIES.
-If NOINSERT, ignore elements on ENTRIES which are not in the ewoc."
-  ;; Add ENTRIES to the vc-dir buffer BUFFER.
+  "Update BUFFER's VC-Dir ewoc from ENTRIES.
+This has the effect of adding ENTRIES to the VC-Dir buffer BUFFER.
+If optional argument NOINSERT is non-nil, update ewoc nodes, but don't
+add elements of ENTRIES to the buffer that aren't already in the ewoc.
+Also update some VC file properties from ENTRIES."
   (with-current-buffer buffer
     ;; Insert the entries sorted by name into the ewoc.
     ;; We assume the ewoc is sorted too, which should be the
@@ -546,7 +597,11 @@ If NOINSERT, ignore elements on ENTRIES which are not in the ewoc."
 			       (apply #'vc-dir-create-fileinfo entry))))))
       (when to-remove
 	(let ((inhibit-read-only t))
-	  (apply #'ewoc-delete vc-ewoc (nreverse to-remove)))))))
+	  (apply #'ewoc-delete vc-ewoc (nreverse to-remove)))))
+    ;; Update VC file properties.
+    (pcase-dolist (`(,file ,state ,_extra) entries)
+      (vc-file-setprop file 'vc-backend
+                       (if (eq state 'unregistered) 'none vc-dir-backend)))))
 
 (defun vc-dir-busy ()
   (and (buffer-live-p vc-dir-process-buffer)
@@ -633,16 +688,18 @@ With prefix argument ARG, move that many lines."
 		      (not (eq processed-line (line-number-at-pos))))
 	    (setq processed-line (line-number-at-pos))
 	    (condition-case nil
-		(funcall mark-unmark-function)
+                ;; Avoid any prompting.
+                (let (vc-dir-allow-mass-mark-changes)
+		  (funcall mark-unmark-function))
 	      ;; `vc-dir-mark-file' signals an error if we try marking
 	      ;; a directory containing marked files in its tree, or a
 	      ;; file in a marked directory tree.  Just continue.
 	      (error (vc-dir-next-line 1))))))
     (funcall mark-unmark-function)))
 
-(defun vc-dir-parent-marked-p (arg)
-  ;; Non-nil iff a parent directory of arg is marked.
-  ;; Return value, if non-nil is the `ewoc-data' for the marked parent.
+(defun vc-dir--parent (arg &optional if-marked)
+  "Return the parent node of ARG.
+If IF-MARKED, return the nearest marked parent."
   (let* ((argdir (vc-dir-node-directory arg))
 	 ;; (arglen (length argdir))
 	 (crt arg)
@@ -655,46 +712,58 @@ With prefix argument ARG, move that many lines."
 	    (dir (vc-dir-node-directory crt)))
 	(and (vc-dir-fileinfo->directory data)
 	     (string-prefix-p dir argdir)
-	     (vc-dir-fileinfo->marked data)
-	     (setq found data))))
+	     (or (not if-marked) (vc-dir-fileinfo->marked data))
+	     (setq found crt))))
     found))
 
-(defun vc-dir-children-marked-p (arg)
-  ;; Non-nil iff a child of ARG is marked.
-  ;; Return value, if non-nil, is the `ewoc-data' for the marked child.
-  (let* ((argdir-re (concat "\\`" (regexp-quote (vc-dir-node-directory arg))))
+(defun vc-dir--children (arg &optional only-marked)
+  "Return a list of children of ARG.  If ONLY-MARKED, only those marked."
+  (let* ((argdir-re (concat "\\`"
+                            (regexp-quote (vc-dir-node-directory arg))))
 	 (is-child t)
 	 (crt arg)
 	 (found nil))
     (while (and is-child
-		(null found)
 		(setq crt (ewoc-next vc-ewoc crt)))
-      (let ((data (ewoc-data crt))
-	    (dir (vc-dir-node-directory crt)))
-	(if (string-match argdir-re dir)
-	    (if (vc-dir-fileinfo->marked data)
-		(setq found data))
-	  ;; We are done, we got to an entry that is not a child of `arg'.
-	  (setq is-child nil))))
+      (if (string-match argdir-re (vc-dir-node-directory crt))
+	  (when (or (not only-marked)
+                    (vc-dir-fileinfo->marked (ewoc-data crt)))
+	    (push crt found))
+	;; We are done, we got to an entry that is not a child of `arg'.
+	(setq is-child nil)))
     found))
 
 (defun vc-dir-mark-file (&optional arg)
   ;; Mark ARG or the current file and move to the next line.
   (let* ((crt (or arg (ewoc-locate vc-ewoc)))
          (file (ewoc-data crt))
-	 (isdir (vc-dir-fileinfo->directory file))
-	 ;; Forbid marking a directory containing marked files in its
-	 ;; tree, or a file in a marked directory tree.
-	 (conflict (if isdir
-		       (vc-dir-children-marked-p crt)
-		     (vc-dir-parent-marked-p crt))))
-    (when conflict
-      (error (if isdir
-		 "File `%s' in this directory is already marked"
-	       "Parent directory `%s' is already marked")
-	     (vc-dir-fileinfo->name conflict)))
+         (to-inval (list crt)))
+    ;; We do not allow a state in which a directory is marked and also
+    ;; some of its files are marked.  If the user's intent is clear,
+    ;; adjust things for them so that they can proceed.
+    (if-let* (((vc-dir-fileinfo->directory file))
+              (children (vc-dir--children crt t)))
+        ;; The user wants to mark a directory where some of its children
+        ;; are already marked.  The user's intent is quite clear, so
+        ;; unconditionally unmark the children.
+        (dolist (child children)
+          (setf (vc-dir-fileinfo->marked (ewoc-data child)) nil)
+          (push child to-inval))
+      (when-let* ((parent (vc-dir--parent crt t))
+                  (name (vc-dir-fileinfo->name (ewoc-data parent))))
+        ;; The user seems to want to mark an entry whose directory is
+        ;; already marked.  As the file is already implicitly marked for
+        ;; most VCS, they may not really intend this.
+        (when (or (not vc-dir-allow-mass-mark-changes)
+                  (and (eq vc-dir-allow-mass-mark-changes 'ask)
+                       (not (yes-or-no-p
+                             (format "`%s' is already marked; unmark it?"
+                                     name)))))
+          (error "`%s' is already marked" name))
+        (setf (vc-dir-fileinfo->marked (ewoc-data parent)) nil)
+        (push parent to-inval)))
     (setf (vc-dir-fileinfo->marked file) t)
-    (ewoc-invalidate vc-ewoc crt)
+    (apply #'ewoc-invalidate vc-ewoc to-inval)
     (unless (or arg (mouse-event-p last-command-event))
       (vc-dir-next-line 1))))
 
@@ -774,7 +843,17 @@ If UNMARK (interactively, the prefix), unmark instead."
 
 (defun vc-dir-mark-files (mark-files)
   "Mark files specified by file names in the argument MARK-FILES.
-MARK-FILES should be a list of absolute filenames."
+MARK-FILES should be a list of absolute filenames.
+Directories must have trailing slashes."
+  ;; Filter out subitems that would be implicitly marked.
+  (setq mark-files (sort mark-files))
+  (let ((next mark-files))
+    (while next
+      (when (string-suffix-p "/" (car next))
+        (while (string-prefix-p (car next) (cadr next))
+          (rplacd next (cddr next))))
+      (setq next (cdr next))))
+
   (ewoc-map
    (lambda (filearg)
      (when (member (expand-file-name (vc-dir-fileinfo->name filearg))
@@ -806,9 +885,47 @@ MARK-FILES should be a list of absolute filenames."
 (defun vc-dir-unmark-file ()
   ;; Unmark the current file and move to the next line.
   (let* ((crt (ewoc-locate vc-ewoc))
-         (file (ewoc-data crt)))
-    (setf (vc-dir-fileinfo->marked file) nil)
-    (ewoc-invalidate vc-ewoc crt)
+         (file (ewoc-data crt))
+         to-inval)
+    (if (vc-dir-fileinfo->marked file)
+        (progn (setf (vc-dir-fileinfo->marked file) nil)
+               (push crt to-inval))
+      ;; The current item is not explicitly marked, but its containing
+      ;; directory is marked.  So this item is implicitly marked, for
+      ;; most VCS.  Offer to change that.
+      (if-let* ((parent (vc-dir--parent crt t))
+                (all-children (vc-dir--children parent)))
+          (when (and vc-dir-allow-mass-mark-changes
+                     (or (not (eq vc-dir-allow-mass-mark-changes 'ask))
+                         (yes-or-no-p
+                          (format "\
+Replace mark on `%s' with marks on all subitems but this one?"
+                                  (vc-dir-fileinfo->name file)))))
+            (let ((subtree (if (vc-dir-fileinfo->directory file)
+                               (cons crt (vc-dir--children crt))
+                             (list crt (vc-dir--parent crt)))))
+              (setf (vc-dir-fileinfo->marked (ewoc-data parent)) nil)
+              (push parent to-inval)
+              (dolist (child all-children)
+                (setf (vc-dir-fileinfo->marked (ewoc-data child))
+                      (not (memq child subtree)))
+                (push child to-inval))))
+        ;; The current item is a directory that's not marked, implicitly
+        ;; or explicitly, but it has marked items below it.
+        ;; Offer to unmark those.
+        (when-let*
+            (((vc-dir-fileinfo->directory file))
+             (children (vc-dir--children crt t))
+             ((and vc-dir-allow-mass-mark-changes
+                   (or (not (eq vc-dir-allow-mass-mark-changes 'ask))
+                       (yes-or-no-p
+                        (format "Unmark all items within `%s'?"
+                                (vc-dir-fileinfo->name file)))))))
+          (dolist (child children)
+            (setf (vc-dir-fileinfo->marked (ewoc-data child)) nil)
+            (push child to-inval)))))
+    (when to-inval
+      (apply #'ewoc-invalidate vc-ewoc to-inval))
     (unless (mouse-event-p last-command-event)
       (vc-dir-next-line 1))))
 
@@ -912,7 +1029,10 @@ system."
   (find-file (vc-dir-current-file)))
 
 (defun vc-dir-find-file-other-window (&optional event)
-  "Find the file on the current line, in another window."
+  "Find the file on the current line, in another window.
+If this command needs to split the current window, it by default obeys
+the user options `split-height-threshold' and `split-width-threshold',
+when it decides whether to split the window horizontally or vertically."
   (interactive (list last-nonmenu-event))
   (if event (posn-set-point (event-end event)))
   (find-file-other-window (vc-dir-current-file)))
@@ -1123,13 +1243,21 @@ that file."
           (set-buffer status-buf)
           (if (not (derived-mode-p 'vc-dir-mode))
               (push status-buf drop)
-            (let ((ddir default-directory))
-              (when (string-prefix-p ddir file)
+            (let ((ddir (expand-file-name
+                         ;; The actual contents of this VC-Dir buffer,
+                         ;; which is what we care about here, is always
+                         ;; relative to the toplevel value.
+                         ;; If we invoked the current command from
+                         ;; STATUS-BUF then it might have shadowed
+                         ;; `default-directory' in order to do its work,
+                         ;; but that's irrelevant to us here.
+                         (buffer-local-toplevel-value 'default-directory))))
+              (when (file-in-directory-p file ddir)
                 (if (file-directory-p file)
 		    (progn
 		      (vc-dir-resync-directory-files file)
 		      (ewoc-set-hf vc-ewoc
-				   (vc-dir-headers vc-dir-backend default-directory) ""))
+				   (vc-dir-headers vc-dir-backend ddir) ""))
                   (let* ((complete-state (vc-dir-recompute-file-state file ddir))
 			 (state (cadr complete-state)))
                     (vc-dir-update
@@ -1137,7 +1265,8 @@ that file."
                      status-buf (or (not state)
 				    (eq state 'up-to-date)))))))))))
     ;; Remove out-of-date entries from vc-dir-buffers.
-    (dolist (b drop) (setq vc-dir-buffers (delq b vc-dir-buffers)))))
+    (setq vc-dir-buffers
+          (cl-nset-difference vc-dir-buffers drop :test #'eq))))
 
 (defvar use-vc-backend)  ;; dynamically bound
 
@@ -1179,6 +1308,7 @@ the *vc-dir* buffer.
   (setq-local vc-dir-backend use-vc-backend)
   (setq-local desktop-save-buffer 'vc-dir-desktop-buffer-misc-data)
   (setq-local bookmark-make-record-function #'vc-dir-bookmark-make-record)
+  (setq-local project-find-matching-buffer-function #'vc-dir-find-matching-buffer)
   (setq buffer-read-only t)
   (when (boundp 'tool-bar-map)
     (setq-local tool-bar-map vc-dir-tool-bar-map))
@@ -1211,7 +1341,7 @@ specific headers."
    "\n"))
 
 (defun vc-dir-refresh-files (files)
-  "Refresh some FILES in the *VC-dir* buffer."
+  "Refresh some FILES in the *VC-Dir* buffer."
   (let ((def-dir default-directory)
 	(backend vc-dir-backend))
     (vc-set-mode-line-busy-indicator)
@@ -1255,16 +1385,20 @@ specific headers."
                               (not (vc-dir-fileinfo->needs-update info))))))))))))
 
 (defun vc-dir-revert-buffer-function (&optional _ignore-auto _noconfirm)
-  (vc-dir-refresh))
+  (vc-dir-refresh)
+  (when vc-dir-hide-up-to-date-on-revert
+    (vc-dir-hide-state)))
 
 (defun vc-dir-refresh ()
-  "Refresh the contents of the *VC-dir* buffer.
+  "Refresh the contents of the *VC-Dir* buffer.
 Throw an error if another update process is in progress."
   (interactive)
   (if (vc-dir-busy)
       (error "Another update process is in progress, cannot run two at a time")
     (let ((def-dir default-directory)
 	  (backend vc-dir-backend))
+      (when vc-dir-save-some-buffers-on-revert
+        (vc-buffer-sync-fileset `(,vc-dir-backend (,def-dir)) t))
       (vc-set-mode-line-busy-indicator)
       ;; Call the `dir-status' backend function.
       ;; `dir-status' is supposed to be asynchronous.
@@ -1295,7 +1429,7 @@ Throw an error if another update process is in progress."
           (vc-call-backend
            backend 'dir-status-files def-dir nil
            (lambda (entries &optional more-to-come)
-             ;; ENTRIES is a list of (FILE VC_STATE EXTRA) items.
+             ;; ENTRIES is a list of (FILE VC-STATE EXTRA) items.
              ;; If MORE-TO-COME is true, then more updates will come from
              ;; the asynchronous process.
              (with-current-buffer buffer
@@ -1311,7 +1445,7 @@ Throw an error if another update process is in progress."
                      (run-hooks 'vc-dir-refresh-hook))))))))))))
 
 (defun vc-dir-show-fileentry (file)
-  "Insert an entry for a specific file into the current *VC-dir* listing.
+  "Insert an entry for a specific file into the current *VC-Dir* listing.
 This is typically used if the file is up-to-date (or has been added
 outside of VC) and one wants to do some operation on it."
   (interactive "fShow file: ")
@@ -1372,12 +1506,11 @@ state of item at point, if any."
 (defun vc-dir-printer (fileentry)
   (vc-call-backend vc-dir-backend 'dir-printer fileentry))
 
+(declare-function vc-only-files-state-and-model "vc")
+
 (defun vc-dir-deduce-fileset (&optional state-model-only-files)
   (let ((marked (vc-dir-marked-files))
-	files
-	only-files-list
-	state
-	model)
+	files only-files-list)
     (if marked
 	(progn
 	  (setq files marked)
@@ -1387,19 +1520,11 @@ state of item at point, if any."
 	(setq files (list crt))
 	(when state-model-only-files
 	  (setq only-files-list (vc-dir-child-files-and-states)))))
-
-    (when state-model-only-files
-      (setq state (cdar only-files-list))
-      ;; Check that all files are in a consistent state, since we use that
-      ;; state to decide which operation to perform.
-      (dolist (crt (cdr only-files-list))
-	(unless (vc-compatible-state (cdr crt) state)
-	  (error "When applying VC operations to multiple files, the files are required\nto  be in similar VC states.\n%s in state %s clashes with %s in state %s"
-		 (car crt) (cdr crt) (caar only-files-list) state)))
-      (setq only-files-list (mapcar #'car only-files-list))
-      (when (and state (not (eq state 'unregistered)))
-	(setq model (vc-checkout-model vc-dir-backend only-files-list))))
-    (list vc-dir-backend files only-files-list state model)))
+    (if state-model-only-files
+        (cl-list* vc-dir-backend files
+                  (vc-only-files-state-and-model only-files-list
+                                                 vc-dir-backend))
+      (list vc-dir-backend files))))
 
 ;;;###autoload
 (defun vc-dir-root ()
@@ -1409,7 +1534,7 @@ not under version control, prompt for a directory."
   (interactive)
   (let ((root-dir (vc-root-dir)))
     (if root-dir (vc-dir root-dir)
-      (call-interactively 'vc-dir))))
+      (call-interactively #'vc-dir))))
 
 ;;;###autoload
 (defun vc-dir (dir &optional backend)
@@ -1583,6 +1708,35 @@ type returned by `vc-dir-bookmark-make-record'."
      `("" (buffer . ,buf) . ,(bookmark-get-bookmark-record bmk)))))
 
 (put 'vc-dir-bookmark-jump 'bookmark-handler-type "VC")
+
+
+(declare-function project-root "project")
+
+(defun vc-dir-find-matching-buffer (current-project mirror-project)
+  "Visit VC-Dir buffer for matching directory in another project.
+CURRENT-PROJECT is the project instance for the current project.
+MIRROR-PROJECT is the project instance for the project to visit.
+A matching directory has the same name relative to the project root.
+If a matching directory does not exist in the other project, try going
+up the directory tree until encountering a directory that exists.
+
+This function is intended to be used as the value of
+`project-find-matching-buffer-function' in VC-Dir buffers."
+  (let* ((mirror-root (project-root mirror-project))
+         (relative-name (file-relative-name default-directory
+                                            (project-root current-project)))
+         (mirror-name (expand-file-name relative-name mirror-root))
+         (orig-mirror-name mirror-name))
+    (while (not (file-directory-p mirror-name))
+      (setq mirror-name (directory-file-name
+                         (file-name-parent-directory mirror-name)))
+      (unless (file-in-directory-p mirror-name mirror-root)
+        (user-error "`%s' not found in `%s'" relative-name mirror-root)))
+    (vc-dir mirror-name)
+    (unless (equal mirror-name orig-mirror-name)
+      (message "`%s' not found; visiting VC-Dir for `%s' instead"
+               (abbreviate-file-name orig-mirror-name)
+               (abbreviate-file-name (file-name-as-directory mirror-name))))))
 
 
 (provide 'vc-dir)

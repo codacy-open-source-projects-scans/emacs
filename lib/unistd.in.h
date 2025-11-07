@@ -1,5 +1,5 @@
 /* Substitute for and wrapper around <unistd.h>.
-   Copyright (C) 2003-2024 Free Software Foundation, Inc.
+   Copyright (C) 2003-2025 Free Software Foundation, Inc.
 
    This file is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser General Public License as
@@ -95,28 +95,6 @@
 # include <stdio.h>
 #endif
 
-/* Cygwin 1.7.1 and Android 4.3 declare unlinkat in <fcntl.h>, not in
-   <unistd.h>.  */
-/* But avoid namespace pollution on glibc systems.  */
-#if (@GNULIB_UNLINKAT@ || defined GNULIB_POSIXCHECK) \
-    && (defined __CYGWIN__ || defined __ANDROID__) \
-    && ! defined __GLIBC__
-# include <fcntl.h>
-#endif
-
-/* mingw fails to declare _exit in <unistd.h>.  */
-/* mingw, MSVC, BeOS, Haiku declare environ in <stdlib.h>, not in
-   <unistd.h>.  */
-/* Solaris declares getcwd not only in <unistd.h> but also in <stdlib.h>.  */
-/* OSF Tru64 Unix cannot see gnulib rpl_strtod when system <stdlib.h> is
-   included here.  */
-/* But avoid namespace pollution on glibc systems.  */
-#if !defined __GLIBC__ && !defined __osf__
-# define __need_system_stdlib_h
-# include <stdlib.h>
-# undef __need_system_stdlib_h
-#endif
-
 /* Native Windows platforms declare _chdir, _getcwd, _rmdir in
    <io.h> and/or <direct.h>, not in <unistd.h>.
    They also declare _access(), _chmod(), _close(), _dup(), _dup2(), _isatty(),
@@ -126,15 +104,35 @@
 # include <direct.h>
 #endif
 
+/* Cygwin 1.7.1 and Android 4.3 declare unlinkat in <fcntl.h>, not in
+   <unistd.h>.  */
+/* But avoid namespace pollution on glibc systems.  */
+#if ((@GNULIB_UNLINKAT@ || defined GNULIB_POSIXCHECK) \
+      && (defined __CYGWIN__ || defined __ANDROID__) \
+      && ! defined __GLIBC__)
+# include <fcntl.h>
+#endif
+
+/* mingw fails to declare _exit in <unistd.h>.  */
+/* mingw, MSVC, BeOS, Haiku declare environ in <stdlib.h>, not in
+   <unistd.h>.  */
+/* Solaris declares getcwd not only in <unistd.h> but also in <stdlib.h>.  */
+/* But avoid namespace pollution on glibc systems.  */
+#if !defined __GLIBC__
+# define __need_system_stdlib_h
+# include <stdlib.h>
+# undef __need_system_stdlib_h
+#endif
+
 /* Native Windows platforms declare _execl*, _execv* in <process.h>.  */
 #if defined _WIN32 && !defined __CYGWIN__
 # include <process.h>
 #endif
 
-/* AIX and OSF/1 5.1 declare getdomainname in <netdb.h>, not in <unistd.h>.
+/* AIX declares getdomainname in <netdb.h>, not in <unistd.h>.
    NonStop Kernel declares gethostname in <netdb.h>, not in <unistd.h>.  */
 /* But avoid namespace pollution on glibc systems.  */
-#if ((@GNULIB_GETDOMAINNAME@ && (defined _AIX || defined __osf__)) \
+#if ((@GNULIB_GETDOMAINNAME@ && defined _AIX) \
      || (@GNULIB_GETHOSTNAME@ && defined __TANDEM)) \
     && !defined __GLIBC__
 # include <netdb.h>
@@ -463,7 +461,9 @@ _GL_CXXALIAS_SYS (copy_file_range, ssize_t, (int ifd, off_t *ipos,
                                              int ofd, off_t *opos,
                                              size_t len, unsigned flags));
 # endif
+# if __GLIBC__ >= 2
 _GL_CXXALIASWARN (copy_file_range);
+# endif
 #elif defined GNULIB_POSIXCHECK
 # undef copy_file_range
 # if HAVE_RAW_DECL_COPY_FILE_RANGE
@@ -1331,8 +1331,7 @@ _GL_CXXALIAS_RPL (gethostname, int, (char *name, size_t len));
 _GL_FUNCDECL_SYS (gethostname, int, (char *name, size_t len),
                                     _GL_ARG_NONNULL ((1)));
 #  endif
-/* Need to cast, because on Solaris 10 and OSF/1 5.1 systems, the second
-   parameter is
+/* Need to cast, because on Solaris 10 systems, the second parameter is
                                                       int len.  */
 _GL_CXXALIAS_SYS_CAST (gethostname, int, (char *name, size_t len));
 # endif
@@ -1362,11 +1361,21 @@ _GL_WARN_ON_USE (gethostname, "gethostname is unportable - "
      ${LOGNAME-$USER}        on Unix platforms,
      $USERNAME               on native Windows platforms.
  */
-# if !@HAVE_DECL_GETLOGIN@
+# if @REPLACE_GETLOGIN@
+#  if !(defined __cplusplus && defined GNULIB_NAMESPACE)
+#   define getlogin rpl_getlogin
+#  endif
+_GL_FUNCDECL_RPL (getlogin, char *, (void), );
+_GL_CXXALIAS_RPL (getlogin, char *, (void));
+# else
+#  if !@HAVE_DECL_GETLOGIN@
 _GL_FUNCDECL_SYS (getlogin, char *, (void), );
-# endif
+#  endif
 _GL_CXXALIAS_SYS (getlogin, char *, (void));
+# endif
+# if __GLIBC__ >= 2
 _GL_CXXALIASWARN (getlogin);
+# endif
 #elif defined GNULIB_POSIXCHECK
 # undef getlogin
 # if HAVE_RAW_DECL_GETLOGIN
@@ -2136,9 +2145,9 @@ _GL_FUNCDECL_SYS (sethostname, int,
                   (const char *name, size_t len),
                   _GL_ARG_NONNULL ((1)) _GL_ATTRIBUTE_NODISCARD);
 #  endif
-/* Need to cast, because on Solaris 11 2011-10, Mac OS X 10.5, IRIX 6.5
-   and FreeBSD 6.4 the second parameter is int.  On Solaris 11
-   2011-10, the first parameter is not const.  */
+/* Need to cast, because on Solaris 11 2011-10, Mac OS X 10.5, and FreeBSD 6.4
+   the second parameter is int.  On Solaris 11 2011-10, the first parameter is
+   not const.  */
 _GL_CXXALIAS_SYS_CAST (sethostname, int,
                        (const char *name, size_t len));
 # endif
@@ -2405,7 +2414,7 @@ _GL_WARN_ON_USE (unlinkat, "unlinkat is not portable - "
 #if @GNULIB_USLEEP@
 /* Pause the execution of the current thread for N microseconds.
    Returns 0 on completion, or -1 on range error.
-   See the POSIX:2001 specification
+   See the POSIX.1-2004 specification
    <https://pubs.opengroup.org/onlinepubs/009695399/functions/usleep.html>.  */
 # if @REPLACE_USLEEP@
 #  if !(defined __cplusplus && defined GNULIB_NAMESPACE)
@@ -2477,6 +2486,18 @@ _GL_CXXALIASWARN (write);
 #endif
 
 _GL_INLINE_HEADER_END
+
+
+/* Includes that provide only macros that don't need to be overridden.
+   (Includes that are needed for type definitions and function declarations
+   have their place above, before the function overrides.)  */
+
+/* FreeBSD 14.0, NetBSD 10.0, OpenBSD 7.5, Solaris 11.4, and glibc 2.41
+   do not define O_CLOEXEC in <unistd.h>.  */
+#if ! defined O_CLOEXEC
+# include <fcntl.h>
+#endif
+
 
 #endif /* _@GUARD_PREFIX@_UNISTD_H */
 #endif /* _GL_INCLUDING_UNISTD_H */

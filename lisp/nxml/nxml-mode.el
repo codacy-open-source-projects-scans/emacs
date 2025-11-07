@@ -1,6 +1,6 @@
 ;;; nxml-mode.el --- a new XML mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2004, 2007-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2004, 2007-2025 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: text, hypermedia, languages, XML
@@ -532,6 +532,10 @@ Many aspects this mode can be customized using
   (setq-local comment-line-break-function #'nxml-newline-and-indent)
   (setq-local comment-quote-nested-function #'nxml-comment-quote-nested)
   (setq-local comment-continue "") ; avoid double-hyphens as a padding
+  (setq-local hs-block-start-regexp "<[^/>]*?")
+  (setq-local hs-block-end-regexp "</[^/>]*[^/]>")
+  (setq-local hs-c-start-regexp "<!--")
+  (setq-local hs-forward-sexp-func #'sgml-skip-tag-forward)
   (save-excursion
     (save-restriction
       (widen)
@@ -817,7 +821,8 @@ Called with `font-lock-beg' and `font-lock-end' dynamically bound."
            (skip-syntax-forward " ")
 
            ;; find the beginning of the previous tag
-           (when (not (equal (char-after) ?\<))
+           (when (and (not (equal (char-after) ?\<))
+                      (< nxml-prolog-end (point)))
              (search-backward "<" nxml-prolog-end t))
            (nxml-ensure-scan-up-to-date)
            (nxml-move-outside-backwards)
@@ -1522,6 +1527,8 @@ of the line.  This expects the xmltok-* variables to be set up as by
 	((progn
 	   (goto-char pos)
 	   (forward-line -1)
+           (while (looking-at "^[[:blank:]]*$")
+             (forward-line -1))
 	   (<= (point) xmltok-start))
 	 (goto-char (+ xmltok-start (length open-delim)))
 	 (when (and (string= open-delim "<!--")

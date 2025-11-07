@@ -1,6 +1,6 @@
-;;; rx.el --- S-exp notation for regexps           --*- lexical-binding: t -*-
+;;; rx.el --- S-exp notation for regexps            -*- lexical-binding: t -*-
 
-;; Copyright (C) 2001-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -267,13 +267,6 @@ Return (REGEXP . PRECEDENCE)."
   "Regexp that never matches anything."
   (cons (list regexp-unmatchable) 'seq))
 
-;; `cl-every' replacement to avoid bootstrapping problems.
-(defun rx--every (pred list)
-  "Whether PRED is true for every element of LIST."
-  (while (and list (funcall pred (car list)))
-    (setq list (cdr list)))
-  (null list))
-
 (defun rx--foldl (f x l)
   "(F (F (F X L0) L1) L2) ...
 Left-fold the list L, starting with X, by the binary function F."
@@ -454,10 +447,10 @@ Each element of ARGS should have been normalised using
 
 (defun rx--all-string-branches-p (forms)
   "Whether FORMS are all strings or `or' forms with the same property."
-  (rx--every (lambda (x) (or (stringp x)
-                             (and (eq (car-safe x) 'or)
-                                  (rx--all-string-branches-p (cdr x)))))
-             forms))
+  (all (lambda (x) (or (stringp x)
+                       (and (eq (car-safe x) 'or)
+                            (rx--all-string-branches-p (cdr x)))))
+       forms))
 
 (defun rx--collect-or-strings (forms)
   "All strings from FORMS, which are strings or `or' forms."
@@ -581,7 +574,7 @@ a list of named character classes in the order they occur in BODY."
     (cons (rx--condense-intervals
            (sort (append conses
                          (mapcan #'rx--string-to-intervals strings))
-                 #'car-less-than-car))
+                 :key #'car :in-place t))
           (nreverse classes))))
 
 (defun rx--generate-alt (negated intervals classes)
@@ -598,10 +591,10 @@ classes."
   ;; regexp engine.  Ranges from ASCII to raw bytes will exclude the
   ;; all non-ASCII non-raw bytes, and ranges from non-ASCII Unicode
   ;; to raw bytes are ignored.
-  (unless (or classes
-              ;; Any interval set covering #x3fff7f should be negated.
-              (rx--every (lambda (iv) (not (<= (car iv) #x3fff7f (cdr iv))))
-                         intervals))
+  (when (and (not classes)
+             ;; Any interval set covering #x3fff7f should be negated.
+             (any (lambda (iv) (<= (car iv) #x3fff7f (cdr iv)))
+                  intervals))
     (setq negated (not negated))
     (setq intervals (rx--interval-set-complement intervals)))
   (cond
@@ -1072,7 +1065,7 @@ Return (REGEXP . PRECEDENCE)."
   "Expand `eval' arguments.  Return a new rx form."
   (unless (and body (null (cdr body)))
     (error "rx `eval' form takes exactly one argument"))
-  (eval (car body)))
+  (eval (car body) lexical-binding))
 
 (defun rx--translate-eval (body)
   "Translate the `eval' form.  Return (REGEXP . PRECEDENCE)."
@@ -1132,7 +1125,7 @@ DEF is the definition tuple.  Return (REGEXP . PRECEDENCE)."
     (when (and max-args (> nargs max-args))
       (error "The `%s' form takes at most %d argument(s)"
              (car form) max-args))
-    (when (and predicate (not (rx--every predicate (cdr form))))
+    (when (and predicate (not (all predicate (cdr form))))
       (error "The `%s' form requires arguments satisfying `%s'"
              (car form) predicate))
     (let ((regexp (funcall fn form)))
@@ -1535,7 +1528,7 @@ TAIL is on the form ([ARGLIST] DEFINITION)."
     (`(,def)
      (list def))
     (`(,args ,def)
-     (unless (and (listp args) (rx--every #'symbolp args))
+     (unless (and (listp args) (all #'symbolp args))
        (error "Bad argument list for `rx' definition %s: %S" name args))
      (list args def))
     (_ (error "Bad `rx' definition of %s: %S" name tail))))
@@ -1685,12 +1678,6 @@ following constructs:
                    REF can be a number, as usual, or a name
                    introduced by a previous (let REF ...)
                    construct."
-  (rx--pcase-expand regexps))
-
-;; Autoloaded because it's referred to by the pcase rx macro above,
-;; whose body ends up in loaddefs.el.
-;;;###autoload
-(defun rx--pcase-expand (regexps)
   (let* ((rx--pcase-vars nil)
          (regexp (rx--to-expr (rx--pcase-transform (cons 'seq regexps)))))
     `(and (pred stringp)
@@ -1726,7 +1713,7 @@ following constructs:
                                    (reverse rx--pcase-vars))))))))))
 
 ;; Obsolete internal symbol, used in old versions of the `flycheck' package.
-(define-obsolete-function-alias 'rx-submatch-n 'rx-to-string "27.1")
+(define-obsolete-function-alias 'rx-submatch-n #'rx-to-string "27.1")
 
 (provide 'rx)
 

@@ -1,6 +1,6 @@
 ;;; mailcap.el --- MIME media types configuration -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
 
 ;; Author: William M. Perry <wmperry@aventail.com>
 ;;	Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -920,6 +920,7 @@ If NO-DECODE is non-nil, don't decode STRING."
     (".htm"   . "text/html")
     (".html"  . "text/html")
     (".icon"  . "image/x-icon")
+    (".ics"   . "text/calendar")
     (".ief"   . "image/ief")
     (".jpg"   . "image/jpeg")
     (".macp"  . "image/x-macpaint")

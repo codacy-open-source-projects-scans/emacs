@@ -1,6 +1,6 @@
 ;;; mm-url.el --- a wrapper of url functions/commands for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
 
 ;; Author: Shenghuo Zhu <zsh@cs.rochester.edu>
 
@@ -310,7 +310,7 @@ If FOLLOW-REFRESH is non-nil, redirect refresh url in META."
 	(done nil)
 	(first t)
 	result)
-    (while (and (not (zerop (cl-decf times)))
+    (while (and (not (zerop (decf times)))
 		(not done))
       (with-timeout (mm-url-timeout)
 	(unless first

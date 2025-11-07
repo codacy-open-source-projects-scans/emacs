@@ -1,5 +1,5 @@
 /* Terminal hooks for GNU Emacs on the Microsoft Windows API.
-   Copyright (C) 1992, 1999, 2001-2024 Free Software Foundation, Inc.
+   Copyright (C) 1992, 1999, 2001-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -64,6 +64,7 @@ static CONSOLE_CURSOR_INFO console_cursor_info;
 static CONSOLE_CURSOR_INFO prev_console_cursor;
 #endif
 
+extern HANDLE  keyboard_handle;
 HANDLE  keyboard_handle;
 int w32_console_unicode_input;
 
@@ -167,6 +168,7 @@ w32con_clear_end_of_line (struct frame *f, int end)
       for (i = 0; i < glyphs_len; i++)
         {
 	  memcpy (&glyphs[i], &space_glyph, sizeof (struct glyph));
+	  glyphs[i].frame = NULL;
         }
       ceol_initialized = TRUE;
     }
@@ -327,14 +329,21 @@ w32con_write_glyphs (struct frame *f, register struct glyph *string,
     {
       /* Identify a run of glyphs with the same face.  */
       int face_id = string->face_id;
+      /* Since this is called to deliver the frame glyph matrix to the
+	 glass, some of the glyphs might be from a child frame, which
+	 affects the interpretation of face ID.  */
+      struct frame *face_id_frame = string->frame;
       int n;
 
       for (n = 1; n < len; ++n)
-	if (string[n].face_id != face_id)
+	if (!(string[n].face_id == face_id
+	      && string[n].frame == face_id_frame))
 	  break;
 
+      /* w32con_clear_end_of_line sets frame of glyphs to NULL.  */
+      struct frame *attr_frame = face_id_frame ? face_id_frame : f;
       /* Turn appearance modes of the face of the run on.  */
-      char_attr = w32_face_attributes (f, face_id);
+      char_attr = w32_face_attributes (attr_frame, face_id);
 
       if (n == len)
 	/* This is the last run.  */
@@ -342,10 +351,13 @@ w32con_write_glyphs (struct frame *f, register struct glyph *string,
       conversion_buffer = (LPCSTR) encode_terminal_code (string, n, coding);
       if (coding->produced > 0)
 	{
+	  /* Compute the string's width on display by accounting for
+	     character's width.  FIXME: this doesn't handle character
+	     compositions.  */
+	  ptrdiff_t ncols = strwidth (coding->source, coding->src_bytes);
 	  /* Set the attribute for these characters.  */
-	  if (!FillConsoleOutputAttribute (cur_screen, char_attr,
-					   coding->produced, cursor_coords,
-					   &r))
+	  if (!FillConsoleOutputAttribute (cur_screen, char_attr, ncols,
+					   cursor_coords, &r))
 	    {
 	      printf ("Failed writing console attributes: %lu\n",
 		      GetLastError ());
@@ -362,7 +374,7 @@ w32con_write_glyphs (struct frame *f, register struct glyph *string,
 	      fflush (stdout);
 	    }
 
-	  cursor_coords.X += coding->produced;
+	  cursor_coords.X += ncols;
 	  w32con_move_cursor (f, cursor_coords.Y, cursor_coords.X);
 	}
       len -= n;
@@ -398,19 +410,23 @@ w32con_write_glyphs_with_face (struct frame *f, register int x, register int y,
       /* Compute the character attributes corresponding to the face.  */
       DWORD char_attr = w32_face_attributes (f, face_id);
       COORD start_coords;
+      /* Compute the string's width on display by accounting for
+	 character's width.  FIXME: this doesn't handle character
+	 compositions.  */
+      ptrdiff_t ncols = strwidth (coding->source, coding->src_bytes);
 
       start_coords.X = x;
       start_coords.Y = y;
       /* Set the attribute for these characters.  */
-      if (!FillConsoleOutputAttribute (cur_screen, char_attr,
-				       coding->produced, start_coords,
-				       &filled))
+      if (!FillConsoleOutputAttribute (cur_screen, char_attr, ncols,
+				       start_coords, &filled))
 	DebPrint (("Failed writing console attributes: %d\n", GetLastError ()));
       else
 	{
 	  /* Write the characters.  */
 	  if (!WriteConsoleOutputCharacter (cur_screen, conversion_buffer,
-					    filled, start_coords, &written))
+					    coding->produced, start_coords,
+					    &written))
 	    DebPrint (("Failed writing console characters: %d\n",
 		       GetLastError ()));
 	}
@@ -419,34 +435,88 @@ w32con_write_glyphs_with_face (struct frame *f, register int x, register int y,
 
 /* Implementation of draw_row_with_mouse_face for W32 console.  */
 void
-tty_draw_row_with_mouse_face (struct window *w, struct glyph_row *row,
-			      int start_hpos, int end_hpos,
+tty_draw_row_with_mouse_face (struct window *w, struct glyph_row *window_row,
+			      int window_start_x, int window_end_x,
 			      enum draw_glyphs_face draw)
 {
-  int nglyphs = end_hpos - start_hpos;
   struct frame *f = XFRAME (WINDOW_FRAME (w));
-  struct tty_display_info *tty = FRAME_TTY (f);
-  int face_id = tty->mouse_highlight.mouse_face_face_id;
-  int pos_x, pos_y;
+  struct frame *root = root_frame (f);
 
-  if (end_hpos >= row->used[TEXT_AREA])
-    nglyphs = row->used[TEXT_AREA] - start_hpos;
+  /* Window coordinates are relative to the text area.  Make
+     them relative to the window's left edge,  */
+  window_end_x = min (window_end_x, window_row->used[TEXT_AREA]);
+  window_start_x += window_row->used[LEFT_MARGIN_AREA];
+  window_end_x += window_row->used[LEFT_MARGIN_AREA];
 
-  pos_y = row->y + WINDOW_TOP_EDGE_Y (w);
-  pos_x = row->used[LEFT_MARGIN_AREA] + start_hpos + WINDOW_LEFT_EDGE_X (w);
+  /* Translate from window to window's frame.  */
+  int frame_start_x = WINDOW_LEFT_EDGE_X (w) + window_start_x;
+  int frame_end_x = WINDOW_LEFT_EDGE_X (w) + window_end_x;
+  int frame_y = window_row->y + WINDOW_TOP_EDGE_Y (w);
 
-  if (draw == DRAW_MOUSE_FACE)
-    w32con_write_glyphs_with_face (f, pos_x, pos_y,
-				   row->glyphs[TEXT_AREA] + start_hpos,
-				   nglyphs, face_id);
-  else if (draw == DRAW_NORMAL_TEXT)
+  /* Translate from (possible) child frame to root frame.  */
+  int root_start_x, root_end_x, root_y;
+  root_xy (f, frame_start_x, frame_y, &root_start_x, &root_y);
+  root_xy (f, frame_end_x, frame_y, &root_end_x, &root_y);
+  struct glyph_row *root_row = MATRIX_ROW (root->current_matrix, root_y);
+
+  /* Remember current cursor coordinates so that we can restore
+     them at the end.  */
+  COORD save_coords = cursor_coords;
+
+  /* If the root frame displays child frames, we cannot naively
+     write to the terminal what the window thinks should be drawn.
+     Instead, write only those parts that are not obscured by
+     other frames.  */
+  for (int root_x = root_start_x; root_x < root_end_x; )
     {
-      COORD save_coords = cursor_coords;
+      /* Find the start of a run of glyphs from frame F.  */
+      struct glyph *root_start = root_row->glyphs[TEXT_AREA] + root_x;
+      while (root_x < root_end_x && root_start->frame != f)
+	++root_x, ++root_start;
 
-      w32con_move_cursor (f, pos_y, pos_x);
-      write_glyphs (f, row->glyphs[TEXT_AREA] + start_hpos, nglyphs);
-      w32con_move_cursor (f, save_coords.Y, save_coords.X);
+      /* If start of a run of glyphs from F found.  */
+      int root_run_start_x = root_x;
+      if (root_run_start_x < root_end_x)
+	{
+	  /* Find the end of the run of glyphs from frame F.  */
+	  struct glyph *root_end = root_start;
+	  while (root_x < root_end_x && root_end->frame == f)
+	    ++root_x, ++root_end;
+
+	  /* If we have a run glyphs to output, do it.  */
+	  if (root_end > root_start)
+	    {
+	      w32con_move_cursor (root, root_y, root_run_start_x);
+
+	      ptrdiff_t nglyphs = root_end - root_start;
+	      switch (draw)
+		{
+		case DRAW_NORMAL_TEXT:
+		  write_glyphs (f, root_start, nglyphs);
+		  break;
+
+		case DRAW_MOUSE_FACE:
+		  {
+		    struct tty_display_info *tty = FRAME_TTY (f);
+		    int face_id = tty->mouse_highlight.mouse_face_face_id;
+		    w32con_write_glyphs_with_face (f, root_run_start_x, root_y,
+						   root_start, nglyphs,
+						   face_id);
+		  }
+		  break;
+
+		case DRAW_INVERSE_VIDEO:
+		case DRAW_CURSOR:
+		case DRAW_IMAGE_RAISED:
+		case DRAW_IMAGE_SUNKEN:
+		  emacs_abort ();
+		}
+	    }
+	}
     }
+
+  /* Restore cursor where it was before.  */
+  w32con_move_cursor (f, save_coords.Y, save_coords.X);
 }
 
 static void
@@ -530,6 +600,11 @@ static void
 w32con_update_end (struct frame * f)
 {
   SetConsoleCursorPosition (cur_screen, cursor_coords);
+  if (!XWINDOW (selected_window)->cursor_off_p
+      && cursor_coords.X < FRAME_COLS (f))
+    w32con_show_cursor ();
+  else
+    w32con_hide_cursor ();
 }
 
 /***********************************************************************
@@ -556,7 +631,9 @@ sys_tgetstr (char *cap, char **area)
 			stubs from cm.c
  ***********************************************************************/
 
+extern struct tty_display_info *current_tty;
 struct tty_display_info *current_tty = NULL;
+extern int cost;
 int cost = 0;
 
 int evalcost (int);

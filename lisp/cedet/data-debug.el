@@ -1,6 +1,6 @@
 ;;; data-debug.el --- Data structure debugger  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2025 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Old-Version: 0.2
@@ -29,7 +29,7 @@
 ;;
 ;; The best way to get started is to bind M-: to 'data-debug-eval-expression.
 ;;
-;; (global-set-key "\M-:" 'data-debug-eval-expression)
+;; (keymap-global-set "M-:" 'data-debug-eval-expression)
 ;;
 ;; If you write functions with complex output that need debugging, you
 ;; can make them interactive with data-debug-show-stuff.  For example:

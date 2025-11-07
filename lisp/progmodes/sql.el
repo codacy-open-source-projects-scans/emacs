@@ -1,6 +1,6 @@
 ;;; sql.el --- specialized comint.el for SQL interpreters  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2025 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: Michael Mauger <michael@mauger.com>
@@ -4164,7 +4164,7 @@ must tell Emacs.  Here's how to do that in your init file:
               (eval
                '(syntax-propertize-rules
                  ;; Handle escaped apostrophes within strings.
-                 ((if (eq sql-product 'mysql)
+                 ((if (member sql-product '(mysql mariadb))
                       "\\\\'"
                     "''")
                   (0

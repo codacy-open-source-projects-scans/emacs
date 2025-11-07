@@ -1,6 +1,6 @@
 /* Font backend for the Microsoft W32 Uniscribe API.
    Windows-specific parts of the HarfBuzz font backend.
-   Copyright (C) 2008-2024 Free Software Foundation, Inc.
+   Copyright (C) 2008-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -44,6 +44,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "pdumper.h"
 #include "w32common.h"
 
+extern int uniscribe_available;
 int uniscribe_available = 0;
 
 /* EnumFontFamiliesEx callback.  */
@@ -53,6 +54,7 @@ static int CALLBACK ALIGN_STACK add_opentype_font_name_to_list (ENUMLOGFONTEX *,
 #ifdef HAVE_HARFBUZZ
 
 struct font_driver harfbuzz_font_driver;
+extern int harfbuzz_available;
 int harfbuzz_available = 0;
 
 /* Typedefs for HarfBuzz functions which we call through function
@@ -87,14 +89,6 @@ DEF_DLL_FN (void, hb_ot_font_set_funcs, (hb_font_t *));
 
 /* Used by uniscribe_otf_capability.  */
 static Lisp_Object otf_features (HDC context, const char *table);
-
-static int
-memq_no_quit (Lisp_Object elt, Lisp_Object list)
-{
-  while (CONSP (list) && ! EQ (XCAR (list), elt))
-    list = XCDR (list);
-  return (CONSP (list));
-}
 
 
 /* Uniscribe function pointers.  */
@@ -212,6 +206,7 @@ uniscribe_close (struct font *font)
 
 #ifdef HAVE_HARFBUZZ
   w32_dwrite_free_cached_face (uniscribe_font->dwrite_cache);
+  uniscribe_font->dwrite_cache = NULL;
   if (uniscribe_font->w32_font.font.driver == &harfbuzz_font_driver
       && uniscribe_font->cache)
     hb_font_destroy ((hb_font_t *) uniscribe_font->cache);
@@ -766,7 +761,7 @@ add_opentype_font_name_to_list (ENUMLOGFONTEX *logical_font,
     return 1;
 
   family = intern_font_name (logical_font->elfLogFont.lfFaceName);
-  if (! memq_no_quit (family, *list))
+  if (NILP (memq_no_quit (family, *list)))
     *list = Fcons (family, *list);
 
   return 1;
@@ -818,9 +813,9 @@ typedef HRESULT (WINAPI *ScriptGetFontLanguageTags_Proc)
 typedef HRESULT (WINAPI *ScriptGetFontFeatureTags_Proc)
   (HDC, SCRIPT_CACHE *, SCRIPT_ANALYSIS *, OPENTYPE_TAG, OPENTYPE_TAG, int, OPENTYPE_TAG *, int *);
 
-ScriptGetFontScriptTags_Proc script_get_font_scripts_fn;
-ScriptGetFontLanguageTags_Proc script_get_font_languages_fn;
-ScriptGetFontFeatureTags_Proc script_get_font_features_fn;
+static ScriptGetFontScriptTags_Proc script_get_font_scripts_fn;
+static ScriptGetFontLanguageTags_Proc script_get_font_languages_fn;
+static ScriptGetFontFeatureTags_Proc script_get_font_features_fn;
 
 static bool uniscribe_new_apis;
 

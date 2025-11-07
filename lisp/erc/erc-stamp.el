@@ -1,6 +1,6 @@
 ;;; erc-stamp.el --- Timestamping for ERC messages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2002-2004, 2006-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2025 Free Software Foundation, Inc.
 
 ;; Author: Mario Lang <mlang@delysid.org>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -732,6 +732,9 @@ non-nil."
               (symbol (make-symbol "erc-stamp--insert-date"))
               (marker (setf (erc-stamp--date-marker data) (point-min-marker))))
     (setf (erc-stamp--date-fn data) symbol)
+    ;; Disable logging in case `erc-log-write-after-insert' is in effect.
+    (when erc--msg-props
+      (push 'log (gethash 'erc--skip erc--msg-props)))
     (fset symbol
           (lambda (&rest _)
             (remove-hook hook-var symbol)

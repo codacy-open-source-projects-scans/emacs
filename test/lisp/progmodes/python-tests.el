@@ -1,6 +1,6 @@
 ;;; python-tests.el --- Test suite for python.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -3204,6 +3204,30 @@ d = '''d'''
                 (python-tests-look-at "c'")
                 (pos-eol))))))
 
+(ert-deftest python-nav-end-of-statement-5 ()
+  "Test long multi-line string (Bug#75387)."
+  (let* ((line (format "%s\n" (make-string 80 ?a)))
+         (lines (apply #'concat (make-list 50 line))))
+    (python-tests-with-temp-buffer
+     (concat
+      "
+s = '''
+"
+      lines
+      "\\'''"
+      lines
+      "'''
+a = 1
+")
+     (python-tests-look-at "s = '''")
+     (should (= (save-excursion
+                  (python-nav-end-of-statement)
+                  (point))
+                (save-excursion
+                  (python-tests-look-at "a = 1")
+                  (forward-line -1)
+                  (pos-eol)))))))
+
 (ert-deftest python-nav-forward-statement-1 ()
   (python-tests-with-temp-buffer
    "
@@ -3755,6 +3779,24 @@ if x:
       (string= (buffer-substring-no-properties
                 (pos-bol) (pos-eol))
                "abcdef")))))
+
+(ert-deftest python-indent-dedent-line-backspace-4 ()
+  "Delete the text in the region instead of de-indentation.  Bug#48695."
+  (dolist (test '((1 4) (2 0)))
+    (python-tests-with-temp-buffer
+        "
+if True:
+    x ()
+    if False:
+"
+      (let ((current-prefix-arg (list (car test))))
+        (python-tests-look-at "if False:")
+        (end-of-line)
+        (transient-mark-mode)
+        (set-mark (point))
+        (backward-word 2)
+        (call-interactively #'python-indent-dedent-line-backspace)
+        (should (= (current-indentation) (cadr test)))))))
 
 (ert-deftest python-bob-infloop-avoid ()
   "Test that strings at BOB don't confuse syntax analysis.  Bug#24905"
@@ -4559,6 +4601,32 @@ and `python-shell-interpreter-args' in the new shell buffer."
            (should (string= python-shell--prompt-calculated-output-regexp
                             "^\\(o\\.t \\|\\)")))
        (ignore-errors (delete-file startup-file))))))
+
+(ert-deftest python-shell--convert-file-name-to-send-1 ()
+  "Test parameters consist of a list of the following three elements.
+1. The variable `default-directory' of the process.
+2. FILE-NAME argument.
+3. The expected return value."
+  (python-tests-with-temp-buffer-with-shell
+   ""
+   (let* ((path "/tmp/tmp.py")
+          (local-path (concat python-shell-local-prefix path))
+          (remote1-path (concat "/ssh:remote1:" path))
+          (remote2-path (concat "/ssh:remote2:" path))
+          (process (python-shell-get-process)))
+     (dolist
+         (test (list (list "/tmp" nil nil)
+                     (list "/tmp" path path)
+                     (list "/tmp" local-path path)
+                     (list "/ssh:remote1:/tmp" path local-path)
+                     (list "/ssh:remote1:/tmp" local-path local-path)
+                     (list "/ssh:remote1:/tmp" remote1-path path)
+                     (list "/ssh:remote1:/tmp" remote2-path remote2-path)))
+       (with-current-buffer (process-buffer process)
+         (setq default-directory (nth 0 test)))
+       (should (string= (python-shell--convert-file-name-to-send
+                         process (nth 1 test))
+                        (nth 2 test)))))))
 
 (ert-deftest python-shell-buffer-substring-1 ()
   "Selecting a substring of the whole buffer must match its contents."
@@ -5797,6 +5865,15 @@ if width == 0 and height == 0 and \\
    (python-tests-look-at "raise ValueError(")
    (should (python-info-statement-ends-block-p))))
 
+(ert-deftest python-info-statement-ends-block-p-3 ()
+  (python-tests-with-temp-buffer
+   "
+def function():
+    print()  # Comment
+"
+   (python-tests-look-at "print()")
+   (should (python-info-statement-ends-block-p))))
+
 (ert-deftest python-info-beginning-of-statement-p-1 ()
   (python-tests-with-temp-buffer
    "
@@ -5957,6 +6034,15 @@ if width == 0 and height == 0 and \\
    (should (not (python-info-end-of-block-p)))
    (goto-char (point-max))
    (python-util-forward-comment -1)
+   (should (python-info-end-of-block-p))))
+
+(ert-deftest python-info-end-of-block-p-3 ()
+  (python-tests-with-temp-buffer
+   "
+def function():
+    print()  # Comment
+"
+   (python-tests-look-at "  # Comment")
    (should (python-info-end-of-block-p))))
 
 (ert-deftest python-info-dedenter-opening-block-position-1 ()
@@ -7700,26 +7786,44 @@ always located at the beginning of buffer."
 (ert-deftest python-ts-mode-nested-types-face-1 ()
   (python-ts-tests-with-temp-buffer
    "def func(v:dict[ list[ tuple[str] ], int | None] | None):"
-   (dolist (test '("dict" "list" "tuple" "str" "int" "None" "None"))
+    (dolist (test '("dict" "list" "tuple" "str" "int"))
      (search-forward test)
      (goto-char (match-beginning 0))
-     (should (eq (face-at-point) 'font-lock-type-face)))))
+      (should (eq (face-at-point) 'font-lock-type-face)))
+
+    (goto-char (point-min))
+    (dolist (test '("None" "None"))
+      (search-forward test)
+      (goto-char (match-beginning 0))
+      (should (eq (face-at-point) 'font-lock-constant-face)))))
 
 (ert-deftest python-ts-mode-union-types-face-1 ()
   (python-ts-tests-with-temp-buffer
    "def f(val: tuple[tuple, list[Lvl1 | Lvl2[Lvl3[Lvl4[Lvl5 | None]], Lvl2]]]):"
-   (dolist (test '("tuple" "tuple" "list" "Lvl1" "Lvl2" "Lvl3" "Lvl4" "Lvl5" "None" "Lvl2"))
+    (dolist (test '("tuple" "tuple" "list" "Lvl1" "Lvl2" "Lvl3" "Lvl4" "Lvl5" "Lvl2"))
      (search-forward test)
      (goto-char (match-beginning 0))
-     (should (eq (face-at-point) 'font-lock-type-face)))))
+      (should (eq (face-at-point) 'font-lock-type-face)))
+
+    (goto-char (point-min))
+    (dolist (test '("None"))
+      (search-forward test)
+      (goto-char (match-beginning 0))
+      (should (eq (face-at-point) 'font-lock-constant-face)))))
 
 (ert-deftest python-ts-mode-union-types-face-2 ()
   (python-ts-tests-with-temp-buffer
    "def f(val: Type0 | Type1[Type2, pack0.Type3] | pack1.pack2.Type4 | None):"
-   (dolist (test '("Type0" "Type1" "Type2" "Type3" "Type4" "None"))
+    (dolist (test '("Type0" "Type1" "Type2" "Type3" "Type4"))
      (search-forward test)
      (goto-char (match-beginning 0))
      (should (eq (face-at-point) 'font-lock-type-face)))
+
+    (goto-char (point-min))
+    (dolist (test '("None"))
+      (search-forward test)
+      (goto-char (match-beginning 0))
+      (should (eq (face-at-point) 'font-lock-constant-face)))
 
    (goto-char (point-min))
    (dolist (test '("pack0" "pack1" "pack2"))

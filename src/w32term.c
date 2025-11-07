@@ -1,6 +1,6 @@
 /* Implementation of GUI terminal on the Microsoft Windows API.
 
-Copyright (C) 1989, 1993-2024 Free Software Foundation, Inc.
+Copyright (C) 1989, 1993-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -118,10 +118,10 @@ typedef struct tagGLYPHSET
 #endif /* compiling for pre-Win2k */
 
 /* Dynamic linking to SetLayeredWindowAttribute (only since 2000).  */
-BOOL (WINAPI *pfnSetLayeredWindowAttributes) (HWND, COLORREF, BYTE, DWORD);
+static BOOL (WINAPI *pfnSetLayeredWindowAttributes) (HWND, COLORREF, BYTE, DWORD);
 
 /* PlgBlt is available since Windows 2000.  */
-BOOL (WINAPI *pfnPlgBlt) (HDC, const POINT *, HDC, int, int, int, int, HBITMAP, int, int);
+static BOOL (WINAPI *pfnPlgBlt) (HDC, const POINT *, HDC, int, int, int, int, HBITMAP, int, int);
 
 /* Define required types and constants on systems with older headers
    lest they be absent.  */
@@ -159,8 +159,8 @@ typedef struct _TOUCHINPUT
 typedef BOOL (WINAPI * CloseTouchInputHandle_proc) (HANDLE);
 typedef BOOL (WINAPI * GetTouchInputInfo_proc) (HANDLE, UINT, PTOUCHINPUT, int);
 
-CloseTouchInputHandle_proc pfnCloseTouchInputHandle;
-GetTouchInputInfo_proc pfnGetTouchInputInfo;
+static CloseTouchInputHandle_proc pfnCloseTouchInputHandle;
+static GetTouchInputInfo_proc pfnGetTouchInputInfo;
 
 #ifndef LWA_ALPHA
 #define LWA_ALPHA 0x02
@@ -193,14 +193,14 @@ HANDLE hWindowsThread = NULL;
 DWORD dwMainThreadId = 0;
 HANDLE hMainThread = NULL;
 
-int vertical_scroll_bar_min_handle;
-int horizontal_scroll_bar_min_handle;
-int vertical_scroll_bar_top_border;
-int vertical_scroll_bar_bottom_border;
-int horizontal_scroll_bar_left_border;
-int horizontal_scroll_bar_right_border;
+static int vertical_scroll_bar_min_handle;
+static int horizontal_scroll_bar_min_handle;
+static int vertical_scroll_bar_top_border;
+static int vertical_scroll_bar_bottom_border;
+static int horizontal_scroll_bar_left_border;
+static int horizontal_scroll_bar_right_border;
 
-int last_scroll_bar_drag_pos;
+static int last_scroll_bar_drag_pos;
 
 /* Keyboard code page - may be changed by language-change events.  */
 int w32_keyboard_codepage;
@@ -276,7 +276,7 @@ int event_record_index;
 
 record_event (char *locus, int type)
 {
-  if (event_record_index == sizeof (event_record) / sizeof (struct record))
+  if (event_record_index == ARRAYELTS (event_record))
     event_record_index = 0;
 
   event_record[event_record_index].locus = locus;
@@ -5259,7 +5259,7 @@ w32_read_socket (struct terminal *terminal,
 		  hlinfo->mouse_face_hidden = true;
 		}
 
-	      if (temp_index == sizeof temp_buffer / sizeof (short))
+	      if (temp_index == ARRAYELTS (temp_buffer))
 		temp_index = 0;
 	      temp_buffer[temp_index++] = msg.msg.wParam;
 	      inev.kind = NON_ASCII_KEYSTROKE_EVENT;
@@ -5285,7 +5285,7 @@ w32_read_socket (struct terminal *terminal,
 		  hlinfo->mouse_face_hidden = true;
 		}
 
-	      if (temp_index == sizeof temp_buffer / sizeof (short))
+	      if (temp_index == ARRAYELTS (temp_buffer))
 		temp_index = 0;
 	      temp_buffer[temp_index++] = msg.msg.wParam;
 
@@ -5400,7 +5400,7 @@ w32_read_socket (struct terminal *terminal,
 		  hlinfo->mouse_face_hidden = true;
 		}
 
-	      if (temp_index == sizeof temp_buffer / sizeof (short))
+	      if (temp_index == ARRAYELTS (temp_buffer))
 		temp_index = 0;
 	      temp_buffer[temp_index++] = msg.msg.wParam;
 	      inev.kind = MULTIMEDIA_KEY_EVENT;
@@ -5444,7 +5444,6 @@ w32_read_socket (struct terminal *terminal,
 		      || (!NILP (focus_follows_mouse)
 			  && !FRAME_NO_ACCEPT_FOCUS (f))))
 		{
-		  static Lisp_Object last_mouse_window;
 		  Lisp_Object window = window_from_coordinates
 		    (f, LOWORD (msg.msg.lParam), HIWORD (msg.msg.lParam), 0, 0, 0, 0);
 
@@ -6405,14 +6404,13 @@ w32_read_socket (struct terminal *terminal,
 	if (FRAME_TOOLTIP_P (f))
 	  continue;
 
-	/* Check "visible" frames and mark each as obscured or not.
+	/* Check "visible" frames and mark each as visible or not.
 	   Note that visible is nonzero for unobscured and obscured
 	   frames, but zero for hidden and iconified frames.  */
 	if (FRAME_W32_P (f) && FRAME_VISIBLE_P (f))
 	  {
 	    RECT clipbox;
 	    HDC  hdc;
-	    bool obscured;
 
 	    enter_crit ();
 	    /* Query clipping rectangle for the entire window area
@@ -6426,29 +6424,11 @@ w32_read_socket (struct terminal *terminal,
 	    ReleaseDC (FRAME_W32_WINDOW (f), hdc);
 	    leave_crit ();
 
-	    obscured = FRAME_OBSCURED_P (f);
-
-	    if (clipbox.right == clipbox.left || clipbox.bottom == clipbox.top)
-	      {
-		/* Frame has become completely obscured so mark as such (we
-		   do this by setting visible to 2 so that FRAME_VISIBLE_P
-		   is still true, but redisplay will skip it).  */
-		SET_FRAME_VISIBLE (f, 2);
-
-		if (!obscured)
-		  DebPrint (("frame %p (%s) obscured\n", f, SDATA (f->name)));
-	      }
-	    else
+	    if (!(clipbox.right == clipbox.left
+		  || clipbox.bottom == clipbox.top))
 	      {
 		/* Frame is not obscured, so mark it as such.  */
 		SET_FRAME_VISIBLE (f, 1);
-
-		if (obscured)
-		  {
-		    SET_FRAME_GARBAGED (f);
-		    DebPrint (("obscured frame %p (%s) found to be visible\n",
-			       f, SDATA (f->name)));
-		  }
 	      }
 	  }
       }

@@ -1,6 +1,6 @@
 ;;; cal-islam.el --- calendar functions for the Islamic calendar  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995, 1997, 2001-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1995, 1997, 2001-2025 Free Software Foundation, Inc.
 
 ;; Author: Edward M. Reingold <reingold@cs.uiuc.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -161,7 +161,7 @@ Reads a year, month, and day."
          (day (calendar-read-sexp
                "Islamic calendar day (1-%d)"
                (lambda (x) (and (< 0 x) (<= x last)))
-               nil
+               1
                last)))
     (list (list month day year))))
 

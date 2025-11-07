@@ -1,6 +1,6 @@
 /* Functions to compute MD5 message digest of files or memory blocks.
    according to the definition of MD5 in RFC 1321 from April 1992.
-   Copyright (C) 1995-1997, 1999-2001, 2005-2006, 2008-2024 Free Software
+   Copyright (C) 1995-1997, 1999-2001, 2005-2006, 2008-2025 Free Software
    Foundation, Inc.
    This file is part of the GNU C Library.
 
@@ -87,7 +87,7 @@ md5_stream (FILE *stream, void *resblock)
              or the fread() in afalg_stream may have gotten EOF.
              We need to avoid a subsequent fread() as EOF may
              not be sticky.  For details of such systems, see:
-             https://sourceware.org/bugzilla/show_bug.cgi?id=1190  */
+             https://sourceware.org/PR1190  */
           if (feof (stream))
             goto process_partial_block;
 

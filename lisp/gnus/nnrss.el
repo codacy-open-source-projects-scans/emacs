@@ -1,6 +1,6 @@
 ;;; nnrss.el --- interfacing with RSS  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2025 Free Software Foundation, Inc.
 
 ;; Author: Shenghuo Zhu <zsh@cs.rochester.edu>
 ;; Keywords: RSS
@@ -496,7 +496,8 @@ which RSS 2.0 allows."
 (defun nnrss-read-server-data (server)
   (setq nnrss-server-data nil)
   (let ((file (nnrss-make-filename "nnrss" server))
-	(file-name-coding-system nnmail-pathname-coding-system))
+        (file-name-coding-system nnmail-pathname-coding-system)
+        (warning-inhibit-types '((files missing-lexbind-cookie))))
     (when (file-exists-p file)
       (load file nil t t))))
 
@@ -505,7 +506,7 @@ which RSS 2.0 allows."
   (let ((coding-system-for-write nnrss-file-coding-system)
 	(file-name-coding-system nnmail-pathname-coding-system))
     (with-temp-file (nnrss-make-filename "nnrss" server)
-      (insert (format ";; -*- coding: %s; -*-\n"
+      (insert (format ";; -*- coding: %s; lexical-binding:t -*-\n"
 		      nnrss-file-coding-system))
       (gnus-prin1 `(setq nnrss-group-alist ',nnrss-group-alist))
       (insert "\n")
@@ -520,7 +521,8 @@ which RSS 2.0 allows."
     (setq nnrss-group-max (or (cadr pair) 0))
     (setq nnrss-group-min (+ nnrss-group-max 1)))
   (let ((file (nnrss-make-filename group server))
-	(file-name-coding-system nnmail-pathname-coding-system))
+        (file-name-coding-system nnmail-pathname-coding-system)
+        (warning-inhibit-types '((files missing-lexbind-cookie))))
     (when (file-exists-p file)
       (load file nil t t)
       (dolist (e nnrss-group-data)
@@ -535,7 +537,7 @@ which RSS 2.0 allows."
   (let ((coding-system-for-write nnrss-file-coding-system)
 	(file-name-coding-system nnmail-pathname-coding-system))
     (with-temp-file (nnrss-make-filename group server)
-      (insert (format ";; -*- coding: %s; -*-\n"
+      (insert (format ";; -*- coding: %s; lexical-binding:t -*-\n"
 		      nnrss-file-coding-system))
       (gnus-prin1 `(setq nnrss-group-data ',nnrss-group-data)))))
 
@@ -682,7 +684,7 @@ which RSS 2.0 allows."
 	    (setq enclosure (list url name len type))))
 	(push
 	 (list
-	  (cl-incf nnrss-group-max)
+          (incf nnrss-group-max)
 	  (current-time)
 	  url
 	  (and subject (nnrss-mime-encode-string subject))

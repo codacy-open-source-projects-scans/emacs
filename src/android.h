@@ -1,6 +1,6 @@
 /* Android initialization for GNU Emacs.
 
-Copyright (C) 2023-2024 Free Software Foundation, Inc.
+Copyright (C) 2023-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -244,6 +244,7 @@ extern void android_display_toast (const char *);
 
 /* Event loop functions.  */
 
+extern void android_before_select (void);
 extern void android_check_query (void);
 extern void android_check_query_urgent (void);
 extern int android_run_in_emacs_thread (void (*) (void *), void *);

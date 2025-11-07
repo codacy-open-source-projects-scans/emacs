@@ -1,6 +1,6 @@
 /* acl.c - access control lists
 
-   Copyright (C) 2002, 2008-2024 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2008-2025 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -79,6 +79,8 @@ struct aclinfo
 bool acl_errno_valid (int) _GL_ATTRIBUTE_CONST;
 int file_has_acl (char const *, struct stat const *);
 int file_has_aclinfo (char const *restrict, struct aclinfo *restrict, int);
+int fdfile_has_aclinfo (int, char const *restrict,
+                        struct aclinfo *restrict, int);
 
 #if HAVE_LINUX_XATTR_H && HAVE_LISTXATTR
 bool aclinfo_has_xattr (struct aclinfo const *, char const *)

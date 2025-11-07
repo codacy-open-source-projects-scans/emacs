@@ -1,6 +1,6 @@
 Debugging GNU Emacs
 
-Copyright (C) 1985, 2000-2024 Free Software Foundation, Inc.
+Copyright (C) 1985, 2000-2025 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 ** Preliminaries
@@ -19,11 +19,11 @@ such as --prefix):
   ./configure --enable-checking='yes,glyphs' --enable-check-lisp-object-type \
     CFLAGS='-O0 -g3'
 
-The -O0 flag is important, as debugging optimized code can be hard.
-If the problem happens only with optimized code, you may need to
-enable optimizations.  If that happens, try using -Og first instead of
--O2, as -Og disables some optimizations that make debugging some code
-exceptionally hard.
+The -O0 flag is important, as debugging optimized code can be hard, even
+in the case that the -Og compiler option is used.[1]  If the problem
+happens only with optimized code, you may need to enable optimizations.
+If that happens, try using -Og first instead of -O2, as -Og disables
+some optimizations that make debugging some code exceptionally hard.
 
 Older versions of GCC may need more than just the -g3 flag.  For more,
 search for "analyze failed assertions" below.
@@ -37,6 +37,9 @@ this below under "Debugging Emacs redisplay problems".
 
 Emacs needs not be installed to be debugged, you can debug the binary
 created in the 'src' directory.
+
+[1]  gcc's -Og has some known problems and limitations, documented here:
+     https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78685
 
 *** Configuring GDB
 
@@ -208,15 +211,19 @@ the debugger, but before running it, is the most efficient way of
 making sure control will be returned to the debugger when you need
 that.
 
-'Fsignal' is a very useful place to put a breakpoint in.  All Lisp
-errors go through there.  If you are only interested in errors that
-would fire the Lisp debugger, breaking at 'maybe_call_debugger' is
-useful.
+The function 'debugger-trap' is a do-nothing interactive command that
+exists to give control to the debugger.  It is convenient to set a
+breakpoint there to give control to the debugger when the function is
+called.  You can invoke it interactively with "M-x debugger-trap RET".
+The src/.gdbinit file in the Emacs source distribution sets a breakpoint
+in this function, so if you arrange for .gdbinit to be loaded, or load
+it manually in a debugging session, the breakpoint is set for you
+automatically.
 
-Another technique for getting control to the debugger is to put a
-breakpoint in some rarely used function.  One such convenient function
-is Fredraw_display, which you can invoke at will interactively with
-"M-x redraw-display RET".
+'Fsignal' is another very useful place to put a breakpoint in.  All Lisp
+errors go through there.  If you are only interested in errors that
+would fire the Lisp debugger, breaking at 'maybe_call_debugger' is a
+useful alternative.
 
 It is also useful to have a guaranteed way to return to the debugger
 at any arbitrary time.  When using X, this is easy: type C-z at the
@@ -260,7 +267,7 @@ from a shell prompt, like this:
 
 where Emacs-PID is the process ID of Emacs being debugged.  Other
 useful signals to send are SIGUSR1 and SIGUSR2; see "Error Debugging"
-in the ELisp manual for how to use those.
+in the Elisp manual for how to use those.
 
 When Emacs is displaying on a text terminal, it is useful to have a
 separate terminal for the debug session.  This can be done by starting
@@ -538,7 +545,7 @@ related data structures in a terse and user-friendly format:
  'pgrow' dumps all glyphs in current glyph_row 'row'.
  'pcursor' dumps current output_cursor.
 
-The above commands also exist in a version with an 'x' suffix which takes an
+The above commands also exist in versions with an 'x' suffix which take an
 object of the relevant type as argument.  For example, 'pgrowx' dumps all
 glyphs in its argument, which must be of type 'struct glyph_row'.
 
@@ -805,7 +812,7 @@ not exit when it should.
 On GNU and Unix systems, you can also try sending Emacs SIGUSR2,
 which, if 'debug-on-event' has its default value, will cause Emacs to
 attempt to break out of its current loop and enter the Lisp
-debugger.  (See the node "Debugging" in the ELisp manual for the
+debugger.  (See the node "Debugging" in the Elisp manual for the
 details about the Lisp debugger.)  This feature is useful when a
 C-level debugger is not conveniently available.
 
@@ -1010,14 +1017,16 @@ program.
 ** Running Emacs with address sanitization
 
 Building Emacs with address sanitization can help debug memory-use
-problems, such as freeing the same object twice.  To use
-AddressSanitizer with GCC and similar compilers, append
+problems, such as freeing the same object twice.  It does, however,
+require special care to ensure that Emacs's garbage collection continues
+working.  To use AddressSanitizer with GCC and similar compilers, append
 '-fsanitize=address' to CFLAGS, either when running 'configure' or
-running 'make'.  Configure, build and run Emacs with
-ASAN_OPTIONS='detect_leaks=0' in the environment to suppress
-diagnostics of minor memory leaks in Emacs.  For example:
+running 'make'.  When running Emacs, ensure the ASAN_OPTIONS environment
+variable is set and includes 'detect_stack_use_after_return=0' (to keep
+GC working) and 'detect_leaks=0' (to avoid noisy diagnostics about minor
+memory leaks in Emacs).  For example:
 
-  export ASAN_OPTIONS='detect_leaks=0'
+  export ASAN_OPTIONS='detect_leaks=0,detect_stack_use_after_return=0'
   ./configure CFLAGS='-O0 -g3 -fsanitize=address'
   make
   src/emacs
@@ -1034,8 +1043,7 @@ will let you gain control when an error is detected and before
 AddressSanitizer outputs to stderr or terminates the program.
 
 Address sanitization is incompatible with undefined-behavior
-sanitization, unfortunately.  Address sanitization is also
-incompatible with the --with-dumping=unexec option of 'configure'.
+sanitization, unfortunately.
 
 *** Address poisoning/unpoisoning
 

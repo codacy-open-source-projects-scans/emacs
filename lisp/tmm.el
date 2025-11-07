@@ -1,6 +1,6 @@
 ;;; tmm.el --- text mode access to menu-bar  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1994-1996, 2000-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1996, 2000-2025 Free Software Foundation, Inc.
 
 ;; Author: Ilya Zakharevich <ilya@math.mps.ohio-state.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -282,6 +282,17 @@ Stores a list of all the shortcuts in the free variable `tmm-short-cuts'."
   (let ((tmm-next-shortcut-digit ?0))
     (mapcar #'tmm-add-one-shortcut (reverse list))))
 
+(defun tmm--shorten-space-width (str)
+  "Shorten the width between the menu entry and the keybinding by 2 spaces."
+  (let* ((start (next-single-property-change 0 'display str))
+         (n (length str))
+         (end (previous-single-property-change n 'display str))
+         (curr-width (and start
+                          (plist-get (get-display-property start 'space str) :width))))
+    (when curr-width
+      (put-text-property start end 'display (cons 'space (list :width (- curr-width 2))) str))
+    str))
+
 (defsubst tmm-add-one-shortcut (elt)
   ;; uses the free vars tmm-next-shortcut-digit and tmm-short-cuts
   (cond
@@ -327,9 +338,14 @@ Stores a list of all the shortcuts in the free variable `tmm-short-cuts'."
                      (add-text-properties pos (1+ pos) '(face highlight) res)
                      res)
                  ;; A fallback digit character: place it in front of the
-                 ;; menu entry.
-                 (concat (propertize (char-to-string char) 'face 'highlight)
-                         " " str))
+                 ;; menu entry.  We need to shorten the spaces between
+                 ;; the menu entry and the keybinding by two spaces
+                 ;; because we added two characters at the front (one
+                 ;; digit and one space) and this would cause a
+                 ;; misalignment otherwise.
+                 (tmm--shorten-space-width
+                  (concat (propertize (char-to-string char) 'face 'highlight)
+                          " " str)))
              (make-string 2 ?\s))
          (concat (if char (concat (char-to-string char) tmm-mid-prompt)
                    ;; Keep them lined up in columns.

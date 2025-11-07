@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2024 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Lists
@@ -385,6 +385,61 @@ elements.
 This means that it is usually a good idea to use the return value and
 not just rely on the truncation effect unless @var{n} is known to be
 positive.
+@end defun
+
+@defun drop-while pred list
+This function skips leading list elements for which the predicate @var{pred}
+returns non-@code{nil}, and returns the rest.
+
+@example
+@group
+(drop-while #'numberp '(1 2 a b 3 4))
+     @result{} (a b 3 4)
+@end group
+@end example
+@end defun
+
+@defun take-while pred list
+This function returns the leading list elements for which the predicate
+@var{pred} returns non-@code{nil}, and ignores the rest.
+
+In general,
+@code{(append (take-while @var{p} @var{list}) (drop-while @var{p} @var{list}))}
+will return a list equal to @var{list}.
+
+@example
+@group
+(take-while #'numberp '(1 2 a b 3 4))
+     @result{} (1 2)
+@end group
+@end example
+@end defun
+
+@defun all pred list
+This function returns @code{t} if @var{pred} is true for all elements in
+@var{list}.
+
+@example
+@group
+(all #'numberp '(1 2 3 4))     @result{} t
+(all #'numberp '(1 2 a b 3 4)) @result{} nil
+(all #'numberp '())            @result{} t
+@end group
+@end example
+@end defun
+
+@defun any pred list
+This function returns non-@code{nil} if @var{pred} is true for at least
+one element in @var{list}.  The returned value is the longest @var{list}
+suffix whose first element satisfies @var{pred}.
+
+@example
+@group
+(any #'symbolp '(1 2 3 4))     @result{} nil
+(any #'symbolp '(1 2 a b 3 4)) @result{} (a b 3 4)
+(any #'symbolp '())            @result{} nil
+@end group
+@end example
 @end defun
 
 @defun last list &optional n
@@ -1934,6 +1989,19 @@ Nested association lists is supported:
 Nesting @code{let-alist} inside each other is allowed, but the code in
 the inner @code{let-alist} can't access the variables bound by the
 outer @code{let-alist}.
+
+Indexing into lists is also supported:
+
+@lisp
+(setq colors '((rose . red) (lily . (yellow pink))))
+(let-alist colors .lily.1)
+     @result{} pink
+@end lisp
+
+Note that forms like @samp{.0} or @samp{.3} are interpreted as numbers
+rather than as symbols, so they won't be bound to the corresponding
+values in ALIST.
+
 @end defmac
 
 @node Property Lists
@@ -1980,8 +2048,8 @@ valid property list.
 
 @node Plists and Alists
 @subsection Property Lists and Association Lists
-@cindex plist vs. alist
-@cindex alist vs. plist
+@cindex plist vs.@: alist
+@cindex alist vs.@: plist
 
 @cindex property lists vs association lists
   Association lists (@pxref{Association Lists}) are very similar to

@@ -1,6 +1,6 @@
 ;;; tex-mode.el --- TeX, LaTeX, and SliTeX mode commands  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1989, 1992, 1994-1999, 2001-2024 Free
+;; Copyright (C) 1985-1986, 1989, 1992, 1994-1999, 2001-2025 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -64,7 +64,7 @@
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-directory (purecopy ".")
+(defcustom tex-directory "."
   "Directory in which temporary files are written.
 You can make this `/tmp' if your TEXINPUTS has no relative directories in it
 and you don't try to apply \\[tex-region] or \\[tex-buffer] when there are
@@ -98,7 +98,7 @@ if the variable is non-nil."
   :group 'tex-file)
 
 ;;;###autoload
-(defcustom tex-run-command (purecopy "tex")
+(defcustom tex-run-command "tex"
   "Command used to run TeX subjob.
 TeX Mode sets `tex-command' to this string.
 See the documentation of that variable."
@@ -106,7 +106,7 @@ See the documentation of that variable."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom latex-run-command (purecopy "latex")
+(defcustom latex-run-command "latex"
   "Command used to run LaTeX subjob.
 LaTeX Mode sets `tex-command' to this string.
 See the documentation of that variable."
@@ -114,7 +114,7 @@ See the documentation of that variable."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom slitex-run-command (purecopy "slitex")
+(defcustom slitex-run-command "slitex"
   "Command used to run SliTeX subjob.
 SliTeX Mode sets `tex-command' to this string.
 See the documentation of that variable."
@@ -122,7 +122,7 @@ See the documentation of that variable."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-start-options (purecopy "")
+(defcustom tex-start-options ""
   "TeX options to use when starting TeX.
 These immediately precede the commands in `tex-start-commands'
 and the input file name, with no separating space and are not shell-quoted.
@@ -132,7 +132,7 @@ If nil, TeX runs with no options.  See the documentation of `tex-command'."
   :version "22.1")
 
 ;;;###autoload
-(defcustom tex-start-commands (purecopy "\\nonstopmode\\input")
+(defcustom tex-start-commands "\\nonstopmode\\input"
   "TeX commands to use when starting TeX.
 They are shell-quoted and precede the input file name, with a separating space.
 If nil, no commands are used.  See the documentation of `tex-command'."
@@ -163,7 +163,7 @@ Combined with `latex-standard-block-names' for minibuffer completion."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-bibtex-command (purecopy "bibtex")
+(defcustom tex-bibtex-command "bibtex"
   "Command used by `tex-bibtex-file' to gather bibliographic data.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by blank, is added at the end."
@@ -171,7 +171,7 @@ otherwise, the file name, preceded by blank, is added at the end."
   :group 'tex-run)
 
 ;;;###autoload
-(defcustom tex-dvi-print-command (purecopy "lpr -d")
+(defcustom tex-dvi-print-command "lpr -d"
   "Command used by \\[tex-print] to print a .dvi file.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by blank, is added at the end."
@@ -179,7 +179,7 @@ otherwise, the file name, preceded by blank, is added at the end."
   :group 'tex-view)
 
 ;;;###autoload
-(defcustom tex-alt-dvi-print-command (purecopy "lpr -d")
+(defcustom tex-alt-dvi-print-command "lpr -d"
   "Command used by \\[tex-print] with a prefix arg to print a .dvi file.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by blank, is added at the end.
@@ -199,9 +199,9 @@ use."
 
 ;;;###autoload
 (defcustom tex-dvi-view-command
-  (cond ((eq window-system 'x) (purecopy "xdvi"))
-        ((eq window-system 'w32) (purecopy "yap"))
-        (t (purecopy "dvi2tty * | cat -s")))
+  (cond ((eq window-system 'x) "xdvi")
+        ((eq window-system 'w32) "yap")
+        (t "dvi2tty * | cat -s"))
   "Command used by \\[tex-view] to display a `.dvi' file.
 If this string contains an asterisk (`*'), that is replaced by the file name;
 otherwise, the file name, preceded by a space, is added at the end.
@@ -214,7 +214,7 @@ will lead to a warning.  Set it to a string instead."
   :group 'tex-view)
 
 ;;;###autoload
-(defcustom tex-show-queue-command (purecopy "lpq")
+(defcustom tex-show-queue-command "lpq"
   "Command used by \\[tex-show-print-queue] to show the print queue.
 Should show the queue(s) that \\[tex-print] puts jobs on."
   :type 'string
@@ -230,14 +230,14 @@ Normally set to either `plain-tex-mode' or `latex-mode'."
   :group 'tex)
 
 ;;;###autoload
-(defcustom tex-open-quote (purecopy "``")
+(defcustom tex-open-quote "``"
   "String inserted by typing \\[tex-insert-quote] to open a quotation."
   :type 'string
   :options '("``" "\"<" "\"`" "<<" "«")
   :group 'tex)
 
 ;;;###autoload
-(defcustom tex-close-quote (purecopy "''")
+(defcustom tex-close-quote "''"
   "String inserted by typing \\[tex-insert-quote] to close a quotation."
   :type 'string
   :options '("''" "\">" "\"'" ">>" "»")
@@ -945,18 +945,14 @@ START is the position of the \\ and DELIM is the delimiter char."
     map)
  "Keymap shared by TeX modes.")
 
-(defvar latex-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map tex-mode-map)
-    (define-key map "\C-c\C-s" #'latex-split-block)
-    map)
-  "Keymap for `latex-mode'.  See also `tex-mode-map'.")
+(defvar-keymap latex-mode-map
+  :doc "Keymap for `latex-mode'.  See also `tex-mode-map'."
+  :parent tex-mode-map
+  "C-c C-s" #'latex-split-block)
 
-(defvar plain-tex-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map tex-mode-map)
-    map)
-  "Keymap for `plain-tex-mode'.  See also `tex-mode-map'.")
+(defvar-keymap plain-tex-mode-map
+  :doc "Keymap for `plain-tex-mode'.  See also `tex-mode-map'."
+  :parent tex-mode-map)
 
 (defvar tex-shell-map
   (let ((m (make-sparse-keymap)))
@@ -1945,7 +1941,7 @@ Mark is left at original location."
 	(if (not (eq (char-syntax (preceding-char)) ?/))
 	    (progn
 	      ;; Don't count single-char words.
-	      (unless (looking-at ".\\>") (cl-incf count))
+              (unless (looking-at ".\\>") (incf count))
 	      (forward-char 1))
 	  (let ((cmd
 		 (buffer-substring-no-properties
@@ -3189,9 +3185,14 @@ There might be text before point."
     ("\\bigcap" . ?⋂)
     ("\\bigcirc" . ?◯)
     ("\\bigcup" . ?⋃)
+    ("\\bigodot" . ?⨀)
+    ("\\bigoplus" . ?⨁)
+    ("\\bigotimes" . ?⨂)
+    ("\\bigsqcup" . ?⨆)
     ("\\bigstar" . ?★)
     ("\\bigtriangledown" . ?▽)
     ("\\bigtriangleup" . ?△)
+    ("\\biguplus" . ?⨄)
     ("\\bigvee" . ?⋁)
     ("\\bigwedge" . ?⋀)
     ("\\blacklozenge" . ?✦)
@@ -3208,12 +3209,11 @@ There might be text before point."
     ("\\bullet" . ?•)
     ("\\bumpeq" . ?≏)
     ("\\cap" . ?∩)
+    ("\\cdot" . ?⋅)
     ("\\cdots" . ?⋯)
     ("\\centerdot" . ?·)
     ("\\checkmark" . ?✓)
     ("\\chi" . ?χ)
-    ("\\cdot" . ?⋅)
-    ("\\cdots" . ?⋯)
     ("\\circ" . ?∘)
     ("\\circeq" . ?≗)
     ("\\circlearrowleft" . ?↺)
@@ -3290,12 +3290,16 @@ There might be text before point."
     ("\\hookleftarrow" . ?↩)
     ("\\hookrightarrow" . ?↪)
     ("\\iff" . ?⇔)
+    ("\\iiiint" . ?⨌)
+    ("\\iiint" . ?∭)
+    ("\\iint" . ?∬)
     ("\\imath" . ?ı)
     ("\\in" . ?∈)
     ("\\infty" . ?∞)
     ("\\int" . ?∫)
     ("\\intercal" . ?⊺)
-    ("\\langle" . 10216)          ; Literal ?⟨ breaks indentation.
+    ("\\jmath" . ?ȷ)
+    ("\\langle" . ?\⟨)
     ("\\lbrace" . ?{)
     ("\\lbrack" . ?\[)
     ("\\lceil" . ?⌈)
@@ -3327,6 +3331,7 @@ There might be text before point."
     ("\\rhd" . ?▷)
     ("\\ll" . ?≪)
     ("\\llcorner" . ?⌞)
+    ("\\lll" . ?⋘)
     ("\\lnapprox" . ?⋦)
     ("\\lneq" . ?≨)
     ("\\lneqq" . ?≨)
@@ -3364,7 +3369,6 @@ There might be text before point."
     ("\\neg" . ?¬)
     ("\\neq" . ?≠)
     ("\\nequiv" . ?≢)
-    ("\\newline" . ? )
     ("\\nexists" . ?∄)
     ("\\ngeq" . ?≱)
     ("\\ngeqq" . ?≱)
@@ -3404,6 +3408,8 @@ There might be text before point."
     ("\\nvdash" . ?⊬)
     ("\\nwarrow" . ?↖)
     ("\\odot" . ?⊙)
+    ("\\oiiint" . ?∰)
+    ("\\oiint" . ?∯)
     ("\\oint" . ?∮)
     ("\\ominus" . ?⊖)
     ("\\oplus" . ?⊕)
@@ -3425,7 +3431,7 @@ There might be text before point."
     ("\\qed" . ?∎)
     ("\\qquad" . ?⧢)
     ("\\quad" . ?␣)
-    ("\\rangle" . 10217)            ; Literal ?⟩ breaks indentation.
+    ("\\rangle" . ?\⟩)
     ("\\rbrace" . ?})
     ("\\rbrack" . ?\])
     ("\\rceil" . ?⌉)
@@ -3512,10 +3518,12 @@ There might be text before point."
     ("\\vDash" . ?⊨)
     ("\\varepsilon" . ?ε)
     ("\\varphi" . ?φ)
+    ("\\varpi" . ?ϖ)
     ("\\varprime" . ?′)
     ("\\varpropto" . ?∝)
     ("\\varrho" . ?ϱ)
     ("\\varsigma" . ?ς)
+    ("\\vartheta" . ?ϑ)
     ("\\vartriangleleft" . ?⊲)
     ("\\vartriangleright" . ?⊳)
     ("\\vdash" . ?⊢)
@@ -3526,19 +3534,60 @@ There might be text before point."
     ("\\wedge" . ?∧)
     ("\\wp" . ?℘)
     ("\\wr" . ?≀)
-    ("\\Bbb{N}" . ?ℕ)			; AMS commands for blackboard bold
-    ("\\Bbb{P}" . ?ℙ)			; Also sometimes \mathbb.
+    ("\\Bbb{A}" . ?𝔸)			; AMS commands for blackboard bold
+    ("\\Bbb{B}" . ?𝔹)			; Also sometimes \mathbb.
+    ("\\Bbb{C}" . ?ℂ)
+    ("\\Bbb{D}" . ?𝔻)
+    ("\\Bbb{E}" . ?𝔼)
+    ("\\Bbb{F}" . ?𝔽)
+    ("\\Bbb{G}" . ?𝔾)
+    ("\\Bbb{H}" . ?ℍ)
+    ("\\Bbb{I}" . ?𝕀)
+    ("\\Bbb{J}" . ?𝕁)
+    ("\\Bbb{K}" . ?𝕂)
+    ("\\Bbb{L}" . ?𝕃)
+    ("\\Bbb{M}" . ?𝕄)
+    ("\\Bbb{N}" . ?ℕ)
+    ("\\Bbb{O}" . ?𝕆)
+    ("\\Bbb{P}" . ?ℙ)
     ("\\Bbb{Q}" . ?ℚ)
     ("\\Bbb{R}" . ?ℝ)
+    ("\\Bbb{S}" . ?𝕊)
     ("\\Bbb{T}" . ?𝕋)
+    ("\\Bbb{U}" . ?𝕌)
+    ("\\Bbb{V}" . ?𝕍)
+    ("\\Bbb{W}" . ?𝕎)
+    ("\\Bbb{X}" . ?𝕏)
+    ("\\Bbb{Y}" . ?𝕐)
     ("\\Bbb{Z}" . ?ℤ)
-    ("\\mathbb{N}" . ?ℕ)			; AMS commands for blackboard bold
-    ("\\mathbb{P}" . ?ℙ)			; Also sometimes \mathbb.
+    ("\\mathbb{A}" . ?𝔸)			; AMS commands for blackboard bold
+    ("\\mathbb{B}" . ?𝔹)			; Also sometimes \mathbb.
+    ("\\mathbb{C}" . ?ℂ)
+    ("\\mathbb{D}" . ?𝔻)
+    ("\\mathbb{E}" . ?𝔼)
+    ("\\mathbb{F}" . ?𝔽)
+    ("\\mathbb{G}" . ?𝔾)
+    ("\\mathbb{H}" . ?ℍ)
+    ("\\mathbb{I}" . ?𝕀)
+    ("\\mathbb{J}" . ?𝕁)
+    ("\\mathbb{K}" . ?𝕂)
+    ("\\mathbb{L}" . ?𝕃)
+    ("\\mathbb{M}" . ?𝕄)
+    ("\\mathbb{N}" . ?ℕ)
+    ("\\mathbb{O}" . ?𝕆)
+    ("\\mathbb{P}" . ?ℙ)
     ("\\mathbb{Q}" . ?ℚ)
     ("\\mathbb{R}" . ?ℝ)
+    ("\\mathbb{S}" . ?𝕊)
     ("\\mathbb{T}" . ?𝕋)
+    ("\\mathbb{U}" . ?𝕌)
+    ("\\mathbb{V}" . ?𝕍)
+    ("\\mathbb{W}" . ?𝕎)
+    ("\\mathbb{X}" . ?𝕏)
+    ("\\mathbb{Y}" . ?𝕐)
     ("\\mathbb{Z}" . ?ℤ)
     ("\\pm" . ?±)
+    ("\\pounds" . ?£)
     ("\\|" . ?‖)
     ("\\varkappa" . ?ϰ)
     ;; caligraphic
@@ -3703,8 +3752,8 @@ There might be text before point."
     ("\\textreferencemark" . ?※)
     ("\\textinterrobang" . ?‽)
     ("\\textfractionsolidus" . ?⁄)
-    ("\\textlquill" . 8261) ; Literal ?⁅ breaks indentation
-    ("\\textrquill" . 8262) ; Literal ?⁆ breaks indentation
+    ("\\textlquill" . ?\⁅)
+    ("\\textrquill" . ?\⁆)
     ("\\textdiscount" . ?⁒)
     ("\\textcolonmonetary" . ?₡)
     ("\\textlira" . ?₤)
@@ -3729,8 +3778,8 @@ There might be text before point."
     ("\\textdownarrow" . ?↓)
     ("\\textminus" . ?−)
     ("\\textsurd" . ?√)
-    ("\\textlangle" . 9001) ; Literal ?〈 breaks indentation
-    ("\\textrangle" . 9002) ; Literal ?〉 breaks indentation
+    ("\\textlangle" . ?\〈)
+    ("\\textrangle" . ?\〉)
     ("\\textblank" . ?␢)
     ("\\textvisiblespace" . ?␣)
     ("\\textopenbullet" . ?◦)
@@ -3740,30 +3789,88 @@ There might be text before point."
     ("\\textmusicalnote" . ?♪)
     ("\\textmarried" . ?⚭)
     ("\\textdivorced" . ?⚮)
-    ("\\textlbrackdbl" . 10214) ; Literal ?⟦ breaks indentation
-    ("\\textrbrackdbl" . 10215) ; Literal ?⟧ breaks indentation
-    ("\\textinterrobangdown" . ?⸘))
+    ("\\textlbrackdbl" . ?\⟦)
+    ("\\textrbrackdbl" . ?\⟧)
+    ("\\textinterrobangdown" . ?⸘)
+
+    ;; TeX quotes
+    ("``" . ?“)
+    ("''" . ?”)
+
+    ;; Unicode Fractions
+    ("\\frac{1}{2}" . "½")
+    ("\\frac{1}{3}" . "⅓")
+    ("\\frac{2}{3}" . "⅔")
+    ("\\frac{1}{4}" . "¼")
+    ("\\frac{3}{4}" . "¾")
+    ("\\frac{1}{5}" . "⅕")
+    ("\\frac{2}{5}" . "⅖")
+    ("\\frac{3}{5}" . "⅗")
+    ("\\frac{4}{5}" . "⅘")
+    ("\\frac{1}{6}" . "⅙")
+    ("\\frac{5}{6}" . "⅚")
+    ("\\frac{1}{7}" . "⅐")
+    ("\\frac{1}{8}" . "⅛")
+    ("\\frac{3}{8}" . "⅜")
+    ("\\frac{5}{8}" . "⅝")
+    ("\\frac{7}{8}" . "⅞")
+    ("\\frac{1}{9}" . "⅑")
+    ("\\frac{1}{10}" . "⅒")
+    ("\\tfrac{1}{2}" . "½")
+    ("\\tfrac{1}{3}" . "⅓")
+    ("\\tfrac{2}{3}" . "⅔")
+    ("\\tfrac{1}{4}" . "¼")
+    ("\\tfrac{3}{4}" . "¾")
+    ("\\tfrac{1}{5}" . "⅕")
+    ("\\tfrac{2}{5}" . "⅖")
+    ("\\tfrac{3}{5}" . "⅗")
+    ("\\tfrac{4}{5}" . "⅘")
+    ("\\tfrac{1}{6}" . "⅙")
+    ("\\tfrac{5}{6}" . "⅚")
+    ("\\tfrac{1}{7}" . "⅐")
+    ("\\tfrac{1}{8}" . "⅛")
+    ("\\tfrac{3}{8}" . "⅜")
+    ("\\tfrac{5}{8}" . "⅝")
+    ("\\tfrac{7}{8}" . "⅞")
+    ("\\tfrac{1}{9}" . "⅑")
+    ("\\tfrac{1}{10}" . "⅒")
+
+    ;; Other symbols
+    ("\\S" . ?§)
+    ("\\Finv" . ?Ⅎ)
+    ("\\Game" . ?⅁)
+    ("\\ " . ?␣) ; Use ?␣ (OPEN BOX) and not ?⎵ (BOTTOM SQUARE BRACKET)
+    ("\\lvert" . ?|)
+    ("\\rvert" . ?|)
+    ("\\lVert" . ?‖)
+    ("\\rVert" . ?‖))
   "A `prettify-symbols-alist' usable for (La)TeX modes.")
 
-(defun tex--prettify-symbols-compose-p (_start end _match)
-  (or
-   ;; If the matched symbol doesn't end in a word character, then we
-   ;; simply allow composition.  The symbol is probably something like
-   ;; \|, \(, etc.
-   (not (eq ?w (char-syntax (char-before end))))
-   ;; Else we look at what follows the match in order to decide.
-   (let* ((after-char (char-after end))
-          (after-syntax (char-syntax after-char)))
-     (not (or
-           ;; Don't compose \alpha@foo.
-           (eq after-char ?@)
-           ;; The \alpha in \alpha2 or \alpha-\beta may be composed but
-           ;; of course \alphax may not.
-           (and (eq after-syntax ?w)
-                (not (memq after-char
-                           '(?0 ?1 ?2 ?3 ?4 ?5 ?6 ?7 ?8 ?9 ?+ ?- ?' ?\"))))
-           ;; Don't compose inside verbatim blocks.
-           (eq 2 (nth 7 (syntax-ppss))))))))
+(defun tex--prettify-symbols-compose-p (start end _match)
+  (if (save-excursion
+        (goto-char start)
+        ;; Skip composition when the control backslash at START is
+        ;; itself escaped, as in constructs like \"\\\\S\".
+        (not (zerop (mod (skip-chars-backward "\\\\") 2))))
+      nil
+    (or
+     ;; If the matched symbol doesn't end in a word character, then we
+     ;; simply allow composition.  The symbol is probably something like
+     ;; \|, \(, etc.
+     (not (eq ?w (char-syntax (char-before end))))
+     ;; Else we look at what follows the match in order to decide.
+     (let* ((after-char (char-after end))
+            (after-syntax (char-syntax after-char)))
+       (not (or
+             ;; Don't compose \alpha@foo.
+             (eq after-char ?@)
+             ;; The \alpha in \alpha2 or \alpha-\beta may be composed but
+             ;; of course \alphax may not.
+             (and (eq after-syntax ?w)
+                  (not (memq after-char
+                             '(?0 ?1 ?2 ?3 ?4 ?5 ?6 ?7 ?8 ?9 ?+ ?- ?' ?\"))))
+             ;; Don't compose inside verbatim blocks.
+             (eq 2 (nth 7 (syntax-ppss)))))))))
 
 
 ;;; Flymake support
@@ -4020,8 +4127,8 @@ There might be text before point."
                       (ext (file-name-extension fbuf))
                       (finext (concat "*." ext))
                       ((not (seq-find (lambda (elt) (string-match-p elt finext))
-                                      extlist-new)))
-                      ((push finext extlist-new)))))
+                                      extlist-new))))
+            (push finext extlist-new)))
         (unless (seq-set-equal-p extlist-new extlist)
           (setf (alist-get mode semantic-symref-filepattern-alist)
                 extlist-new))))

@@ -1,6 +1,6 @@
 ;;; tramp-fuse.el --- Tramp access functions for FUSE mounts  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -59,11 +59,10 @@
   (let ((result
 	 (tramp-skeleton-directory-files directory full match nosort count
 	   ;; Some storage systems do not return "." and "..".
-	   (delete-dups
-	    (append
-	     '("." "..")
-	     (tramp-fuse-remove-hidden-files
-	      (directory-files (tramp-fuse-local-file-name directory))))))))
+	   (seq-union
+	    '("." "..")
+	    (tramp-fuse-remove-hidden-files
+	     (directory-files (tramp-fuse-local-file-name directory)))))))
     (if full
 	;; Massage the result.
 	(let ((local (rx

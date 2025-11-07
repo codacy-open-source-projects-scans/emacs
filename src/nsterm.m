@@ -1,6 +1,6 @@
 /* NeXT/Open/GNUstep / macOS communication module.      -*- coding: utf-8 -*-
 
-Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2024 Free Software
+Copyright (C) 1989, 1993-1994, 2005-2006, 2008-2025 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -1505,7 +1505,7 @@ ns_make_frame_visible (struct frame *f)
       EmacsView *view = (EmacsView *)FRAME_NS_VIEW (f);
       EmacsWindow *window = (EmacsWindow *)[view window];
 
-      SET_FRAME_VISIBLE (f, 1);
+      SET_FRAME_VISIBLE (f, true);
       ns_raise_frame (f, ! FRAME_NO_FOCUS_ON_MAP (f));
 
       /* Making a new frame from a fullscreen frame will make the new frame
@@ -1550,7 +1550,7 @@ ns_make_frame_invisible (struct frame *f)
   check_window_system (f);
   view = FRAME_NS_VIEW (f);
   [[view window] orderOut: NSApp];
-  SET_FRAME_VISIBLE (f, 0);
+  SET_FRAME_VISIBLE (f, false);
   SET_FRAME_ICONIFIED (f, 0);
 }
 
@@ -1637,6 +1637,7 @@ ns_free_frame_resources (struct frame *f)
 
   [[view window] close];
   [view removeFromSuperview];
+  [view release];
 
   xfree (f->output_data.ns);
   f->output_data.ns = NULL;
@@ -1932,6 +1933,17 @@ ns_set_z_group (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
 
 #ifdef NS_IMPL_COCOA
 void
+ns_set_appearance_1 (struct frame *f, Lisp_Object new_value)
+{
+  if (EQ (new_value, Qdark))
+    FRAME_NS_APPEARANCE (f) = ns_appearance_vibrant_dark;
+  else if (EQ (new_value, Qlight))
+    FRAME_NS_APPEARANCE (f) = ns_appearance_aqua;
+  else
+    FRAME_NS_APPEARANCE (f) = ns_appearance_system_default;
+}
+
+void
 ns_set_appearance (struct frame *f, Lisp_Object new_value, Lisp_Object old_value)
 {
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
@@ -1943,12 +1955,7 @@ ns_set_appearance (struct frame *f, Lisp_Object new_value, Lisp_Object old_value
   if (NSAppKitVersionNumber < NSAppKitVersionNumber10_10)
     return;
 
-  if (EQ (new_value, Qdark))
-    FRAME_NS_APPEARANCE (f) = ns_appearance_vibrant_dark;
-  else if (EQ (new_value, Qlight))
-    FRAME_NS_APPEARANCE (f) = ns_appearance_aqua;
-  else
-    FRAME_NS_APPEARANCE (f) = ns_appearance_system_default;
+  ns_set_appearance_1 (f, new_value);
 
   [window setAppearance];
 #endif /* MAC_OS_X_VERSION_MAX_ALLOWED >= 101000 */
@@ -2898,15 +2905,100 @@ ns_define_fringe_bitmap (int which, unsigned short *bits, int h, int w)
   if (!fringe_bmp)
     fringe_bmp = [[NSMutableDictionary alloc] initWithCapacity:25];
 
-  [p moveToPoint:NSMakePoint (0, 0)];
+  uint8_t *points = alloca ((h + 1) * (w + 1) * 4);
+  uint8_t *cur = points;
 
-  for (int y = 0 ; y < h ; y++)
-    for (int x = 0 ; x < w ; x++)
+  /* Find all the outgoing edges in a clockwise path.  That is, we only
+     want to list the edges leaving a point, not the ones entering a
+     point, so we don't double count them.  */
+  for (int y = 0; y < h + 1; y++)
+    for (int x = 0; x < w + 1; x++)
       {
-        bool bit = bits[y] & (1 << (w - x - 1));
-        if (bit)
-          [p appendBezierPathWithRect:NSMakeRect (x, y, 1, 1)];
+        int nw = 0, ne = 0, se = 0, sw = 0;
+        if (x != 0 && y != 0)
+          nw = bits[y-1] & (1 << (w - x));
+
+        if (x != 0 && y < h)
+          sw = bits[y] & (1 << (w - x));
+
+        if (x < w && y < h)
+          se = bits[y] & (1 << (w - x - 1));
+
+        if (x < w && y != 0)
+          ne = bits[y-1] & (1 << (w - x - 1));
+
+        cur[0] = !nw && ne; /* North.  */
+        cur[1] = !ne && se; /* East.  */
+        cur[2] = !se && sw; /* South.  */
+        cur[3] = !sw && nw; /* West.  */
+        cur += 4;
       }
+
+  /* Find all the points with edges and trace them out.  */
+  int v = 0;
+  char last = 0;
+  while (v < (h + 1) * (w + 1) * 4)
+    {
+      char this = 0;
+      int x = (v/4) % (w+1);
+      int y = (v/4) / (w+1);
+
+      if (points[v+3])
+        {
+          /* West.  */
+          points[v+3] = 0;
+          v = v - 4;
+          this = 'w';
+        }
+      else if (points[v+1])
+        {
+          /* East.  */
+          points[v+1] = 0;
+          v = v + 4;
+          this = 'e';
+        }
+      else if (points[v+2])
+        {
+          /* South.  */
+          points[v+2] = 0;
+          v = ((y+1)*(w+1) + x) * 4;
+          this = 's';
+        }
+      else if (points[v])
+        {
+          /* North.  */
+          points[v] = 0;
+          v = ((y-1)*(w+1) + x) * 4;
+          this = 'n';
+        }
+      else
+        {
+          /* No edge.  */
+          v = v + 4;
+
+          if (last)
+            {
+              /* If we reach here we were tracing a shape but have run
+                 out of edges, so we must be back to the start (or
+                 something's gone wrong).  */
+              [p closePath];
+              last = 0;
+            }
+        }
+
+      if (this)
+        {
+          /* If we've found an edge we now need to either move to that
+             point (if it's the start of a shape) or draw a line from
+             the last corner to this point, but only if it's a
+             corner.  */
+          if (!last)
+            [p moveToPoint:NSMakePoint (x, y)];
+          else if (last && last != this)
+	    [p lineToPoint:NSMakePoint (x, y)];
+          last = this;
+        }
+    }
 
   [fringe_bmp setObject:p forKey:[NSNumber numberWithInt:which]];
 }
@@ -2944,35 +3036,32 @@ ns_draw_fringe_bitmap (struct window *w, struct glyph_row *row,
 
   struct frame *f = XFRAME (WINDOW_FRAME (w));
   struct face *face = p->face;
-  NSRect clearRect = NSZeroRect;
+  NSRect bmpRect = NSZeroRect;
   NSRect rowRect = ns_row_rect (w, row, ANY_AREA);
 
   NSTRACE_WHEN (NSTRACE_GROUP_FRINGE, "ns_draw_fringe_bitmap");
   NSTRACE_MSG ("which:%d cursor:%d overlay:%d width:%d height:%d period:%d",
                p->which, p->cursor_p, p->overlay_p, p->wd, p->h, p->dh);
 
+  /* Work out the rectangle we will need to clear.  */
+  bmpRect = NSMakeRect (p->x, p->y, p->wd, p->h);
+
+  if (p->bx >= 0)
+    bmpRect = NSUnionRect (bmpRect, NSMakeRect (p->bx, p->by, p->nx, p->ny));
+
+  /* Handle partially visible rows.  */
+  bmpRect = NSIntersectionRect (bmpRect, rowRect);
+
+  /* Clip to the bitmap's area.  */
+  ns_focus (f, &bmpRect, 1);
+
   /* Clear screen unless overlay.  */
-  if (!p->overlay_p)
+  if (!p->overlay_p && !NSIsEmptyRect (bmpRect))
     {
-      /* Work out the rectangle we will need to clear.  */
-      clearRect = NSMakeRect (p->x, p->y, p->wd, p->h);
+      NSTRACE_RECT ("clearRect", bmpRect);
 
-      if (p->bx >= 0)
-        clearRect = NSUnionRect (clearRect, NSMakeRect (p->bx, p->by, p->nx, p->ny));
-
-      /* Handle partially visible rows.  */
-      clearRect = NSIntersectionRect (clearRect, rowRect);
-
-      /* The visible portion of imageRect will always be contained
-	 within clearRect.  */
-      ns_focus (f, &clearRect, 1);
-      if (!NSIsEmptyRect (clearRect))
-        {
-          NSTRACE_RECT ("clearRect", clearRect);
-
-          [[NSColor colorWithUnsignedLong:face->background] set];
-          NSRectFill (clearRect);
-        }
+      [[NSColor colorWithUnsignedLong:face->background] set];
+      NSRectFill (bmpRect);
     }
 
   NSBezierPath *bmp = [fringe_bmp objectForKey:[NSNumber numberWithInt:p->which]];
@@ -3817,8 +3906,41 @@ ns_maybe_dumpglyphs_background (struct glyph_string *s, char force_p)
       if (s->stippled_p)
 	{
 	  struct ns_display_info *dpyinfo = FRAME_DISPLAY_INFO (s->f);
+#ifdef NS_IMPL_COCOA
+	  /* On cocoa emacs the stipple is stored as a mask CGImage.
+	     First we want to clear the background with the bg colour */
+	  [[NSColor colorWithUnsignedLong:face->background] set];
+	  r = NSMakeRect (s->x, s->y + box_line_width,
+			  s->background_width,
+			  s->height - 2 * box_line_width);
+	  NSRectFill (r);
+	  s->background_filled_p = 1;
+	  CGImageRef mask
+	    = [dpyinfo->bitmaps[face->stipple - 1].img stippleMask];
+
+	  /* This part could possibly be improved, the author is
+	     unfamiliar with NS/CoreGraphics and isn't sure if it's
+	     possible to do this with NSImage */
+	  NSGraphicsContext *ctx = [NSGraphicsContext currentContext];
+	  [ctx saveGraphicsState];
+	  /* Checkpoint the graphics state and then focus in on the area
+	     we're going to fill */
+	  CGContextRef context = [ctx CGContext];
+	  CGContextClipToRect (context, r);
+	  CGContextScaleCTM (context, 1, -1);
+
+	  /* Stamp the foreground colour using the stipple mask */
+	  [[NSColor colorWithUnsignedLong:face->foreground] set];
+	  CGRect imageSize = CGRectMake (0, 0, CGImageGetWidth (mask),
+					 CGImageGetHeight (mask));
+	  CGContextDrawTiledImage (context, imageSize, mask);
+
+	  [[NSGraphicsContext currentContext] restoreGraphicsState];
+#else
 	  [[dpyinfo->bitmaps[face->stipple-1].img stippleMask] set];
 	  goto fill;
+#endif /* NS_IMPL_COCOA */
+
 	}
       else if (FONT_HEIGHT (s->font) < s->height - 2 * box_line_width
 	       /* When xdisp.c ignores FONT_HEIGHT, we cannot trust font
@@ -3841,7 +3963,9 @@ ns_maybe_dumpglyphs_background (struct glyph_string *s, char force_p)
 	  else
 	    [FRAME_CURSOR_COLOR (s->f) set];
 
+#ifndef NS_IMPL_COCOA
 	fill:
+#endif /* !NS_IMPL_COCOA */
 	  r = NSMakeRect (s->x, s->y + box_line_width,
 			  s->background_width,
 			  s->height - 2 * box_line_width);
@@ -4130,7 +4254,7 @@ ns_draw_stretch_glyph_string (struct glyph_string *s)
 	      face = FACE_FROM_ID_OR_NULL (s->f,
 					   MOUSE_HL_INFO (s->f)->mouse_face_face_id);
 
-	      if (!s->face)
+	      if (!face)
 		face = FACE_FROM_ID (s->f, MOUSE_FACE_ID);
 	      prepare_face_for_display (s->f, face);
 
@@ -4166,7 +4290,38 @@ ns_draw_stretch_glyph_string (struct glyph_string *s)
 	  if (s->hl == DRAW_CURSOR)
 	    [FRAME_CURSOR_COLOR (s->f) set];
 	  else if (s->stippled_p)
-	    [[dpyinfo->bitmaps[s->face->stipple - 1].img stippleMask] set];
+	    {
+#ifdef NS_IMPL_COCOA
+	      /* On cocoa emacs the stipple is stored as a mask CGImage.
+		 First we want to clear the background with the bg
+		 color.  */
+	      [[NSColor colorWithUnsignedLong:s->face->background] set];
+	      NSRectFill (NSMakeRect (x, s->y, background_width, s->height));
+
+	      /* This part could possibly be improved, the author is
+		 unfamiliar with NS/CoreGraphics and isn't sure if it's
+		 possible to do this with NSImage.  */
+	      CGImageRef mask = [dpyinfo->bitmaps[s->face->stipple - 1].img stippleMask];
+	      CGRect bounds = CGRectMake (s->x, s->y, s->background_width, s->height);
+
+	      /* Checkpoint the graphics state and then focus in on the
+		 area we're going to fill.  */
+	      NSGraphicsContext *ctx = [NSGraphicsContext currentContext];
+	      [ctx saveGraphicsState];
+	      CGContextRef context = [ctx CGContext];
+	      CGContextClipToRect (context, bounds);
+	      CGContextScaleCTM (context, 1, -1);
+
+	      /* Stamp the foreground color using the stipple mask.  */
+	      [[NSColor colorWithUnsignedLong:s->face->foreground] set];
+	      CGRect imageSize = CGRectMake (0, 0, CGImageGetWidth (mask),
+					     CGImageGetHeight (mask));
+	      CGContextDrawTiledImage (context, imageSize, mask);
+	      [[NSGraphicsContext currentContext] restoreGraphicsState];
+#else
+	      [[dpyinfo->bitmaps[s->face->stipple - 1].img stippleMask] set];
+#endif /* NS_IMPL_COCOA */
+	    }
 	  else
 	    [[NSColor colorWithUnsignedLong: s->face->background] set];
 
@@ -6664,6 +6819,11 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
 @implementation EmacsView
 
+- (void)windowDidEndLiveResize:(NSNotification *)notification
+{
+  [self updateFramePosition];
+}
+
 /* Needed to inform when window closed from lisp.  */
 - (void) setWindowClosing: (BOOL)closing
 {
@@ -6685,6 +6845,14 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
   if (fs_state == FULLSCREEN_BOTH)
     [nonfs_window release];
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
+  /* Release layer and menu */
+  EmacsLayer *layer = (EmacsLayer *)[self layer];
+  [layer release];
+#endif
+
+  [[self menu] release];
   [super dealloc];
 }
 
@@ -6820,6 +6988,13 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
   return YES;
 }
 
+/* Tell NS we want to accept clicks that activate the window */
+- (BOOL)acceptsFirstMouse:(NSEvent *)theEvent
+{
+  NSTRACE_MSG ("First mouse event: type=%ld, clickCount=%ld",
+               [theEvent type], [theEvent clickCount]);
+  return ns_click_through;
+}
 - (void)resetCursorRects
 {
   NSRect visible = [self visibleRect];
@@ -6883,10 +7058,12 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
   [NSCursor setHiddenUntilMouseMoves:! NILP (Vmake_pointer_invisible)];
 
-  if (hlinfo->mouse_face_hidden && FIXNUMP (Vmouse_highlight))
+  if (!hlinfo->mouse_face_hidden
+      && FIXNUMP (Vmouse_highlight)
+      && !EQ (emacsframe->tab_bar_window, hlinfo->mouse_face_window))
     {
       clear_mouse_face (hlinfo);
-      hlinfo->mouse_face_hidden = 1;
+      hlinfo->mouse_face_hidden = true;
     }
 
   if (!processingCompose)
@@ -6955,8 +7132,12 @@ ns_create_font_panel_buttons (id target, SEL select, SEL cancel_action)
 
 #ifndef NS_IMPL_GNUSTEP
       if (NS_KEYLOG)
-        fprintf (stderr, "keyDown: code =%x\tfnKey =%x\tflags = %x\tmods = %x\n",
-                 code, fnKeysym, flags, emacs_event->modifiers);
+	fprintf (stderr,
+		 "keyDown: code = %x\tfnKey = %x\tflags = %x\tmods = "
+		 "%x\n",
+		 (unsigned int) code, (unsigned int) fnKeysym,
+		 (unsigned int) flags,
+		 (unsigned int) emacs_event->modifiers);
 #endif
 
       /* If it was a function key or had control-like modifiers, pass
@@ -7328,7 +7509,24 @@ ns_in_echo_area (void)
 {
   if (NS_KEYLOG)
     NSLog (@"selectedRange request");
-  return NSMakeRange (NSNotFound, 0);
+
+  struct window *w = XWINDOW (FRAME_SELECTED_WINDOW (emacsframe));
+  struct buffer *buf = XBUFFER (w->contents);
+  ptrdiff_t point = BUF_PT (buf);
+
+  if (NILP (BVAR (buf, mark_active)))
+    {
+      NSUInteger selection_location = point - BUF_BEGV (buf);
+      return NSMakeRange (selection_location, 0);
+    }
+
+  ptrdiff_t mark = marker_position (BVAR (buf, mark));
+  ptrdiff_t region_start = min (point, mark);
+  ptrdiff_t region_end = max (point, mark);
+  NSUInteger selection_location = region_start - BUF_BEGV (buf);
+  NSUInteger selection_length = region_end - region_start;
+
+  return NSMakeRange (selection_location, selection_length);
 }
 
 #if defined (NS_IMPL_COCOA) || GNUSTEP_GUI_MAJOR_VERSION > 0 || \
@@ -7786,6 +7984,37 @@ ns_in_echo_area (void)
 }
 
 
+- (void)updateFramePosition
+{
+  NSWindow *win = [self window];
+  NSRect r = [win frame];
+  NSArray *screens = [NSScreen screens];
+  NSScreen *screen = [screens objectAtIndex: 0];
+
+  if (!emacsframe->output_data.ns)
+    return;
+
+  if (screen != nil)
+    {
+      emacsframe->left_pos = (NSMinX (r)
+                              - NS_PARENT_WINDOW_LEFT_POS (emacsframe));
+      emacsframe->top_pos = (NS_PARENT_WINDOW_TOP_POS (emacsframe)
+                             - NSMaxY (r));
+
+      if (emacs_event)
+        {
+          struct input_event ie;
+          EVENT_INIT (ie);
+          ie.kind = MOVE_FRAME_EVENT;
+          XSETFRAME (ie.frame_or_window, emacsframe);
+          XSETINT (ie.x, emacsframe->left_pos);
+          XSETINT (ie.y, emacsframe->top_pos);
+          kbd_buffer_store_event (&ie);
+        }
+    }
+}
+
+
 - (NSSize)windowWillResize: (NSWindow *)sender toSize: (NSSize)frameSize
 /* Normalize frame to gridded text size.  */
 {
@@ -8120,34 +8349,9 @@ ns_in_echo_area (void)
 
 - (void)windowDidMove: sender
 {
-  NSWindow *win = [self window];
-  NSRect r = [win frame];
-  NSArray *screens = [NSScreen screens];
-  NSScreen *screen = [screens objectAtIndex: 0];
-
   NSTRACE ("[EmacsView windowDidMove:]");
 
-  if (!emacsframe->output_data.ns)
-    return;
-
-  if (screen != nil)
-    {
-      emacsframe->left_pos = (NSMinX (r)
-			      - NS_PARENT_WINDOW_LEFT_POS (emacsframe));
-      emacsframe->top_pos = (NS_PARENT_WINDOW_TOP_POS (emacsframe)
-			     - NSMaxY (r));
-
-      if (emacs_event)
-	{
-	  struct input_event ie;
-	  EVENT_INIT (ie);
-	  ie.kind = MOVE_FRAME_EVENT;
-	  XSETFRAME (ie.frame_or_window, emacsframe);
-	  XSETINT (ie.x, emacsframe->left_pos);
-	  XSETINT (ie.y, emacsframe->top_pos);
-	  kbd_buffer_store_event (&ie);
-	}
-    }
+  [self updateFramePosition];
 }
 
 
@@ -8489,12 +8693,13 @@ ns_in_echo_area (void)
       NSWindowCollectionBehavior b = [win collectionBehavior];
       if (ns_use_native_fullscreen)
         {
-          if (FRAME_PARENT_FRAME (emacsframe))
+	  if (FRAME_PARENT_FRAME (emacsframe)
+	      || FRAME_TOOLTIP_P (emacsframe))
             {
               b &= ~NSWindowCollectionBehaviorFullScreenPrimary;
               b |= NSWindowCollectionBehaviorFullScreenAuxiliary;
             }
-          else
+	  else
             {
               b |= NSWindowCollectionBehaviorFullScreenPrimary;
               b &= ~NSWindowCollectionBehaviorFullScreenAuxiliary;
@@ -9037,7 +9242,7 @@ ns_in_echo_area (void)
   Lisp_Object type_sym;
   struct input_event ie;
 
-  NSTRACE (@"[EmacsView performDragOperation:]");
+  NSTRACE ("[EmacsView performDragOperation:]");
 
   source = [sender draggingSource];
 
@@ -9403,8 +9608,9 @@ ns_in_echo_area (void)
   NSTRACE ("[EmacsWindow dealloc]");
 
   /* We need to release the toolbar ourselves.  */
-  [self setToolbar: nil];
   [[self toolbar] release];
+  [self setToolbar: nil];
+
 
   /* Also the last button press event .  */
   if (last_drag_event)
@@ -9645,7 +9851,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
   NSTRACE ("[EmacsWindow accessibilityAttributeValue:]");
 
   if ([attribute isEqualToString:NSAccessibilityRoleAttribute])
-    return NSAccessibilityTextFieldRole;
+    return NSAccessibilityWindowRole;
 
   if ([attribute isEqualToString:NSAccessibilitySelectedTextAttribute]
       && curbuf && ! NILP (BVAR (curbuf, mark_active)))
@@ -9713,7 +9919,14 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
   NSTRACE ("[EmacsWindow constrainFrameRect:" NSTRACE_FMT_RECT " toScreen:]",
              NSTRACE_ARG_RECT (frameRect));
 
+  /* Don't do anything for child frames because that leads to weird
+     child frame placement in some cases involving Dock placement and
+     Dock Hiding.  */
 #ifdef NS_IMPL_COCOA
+  struct frame *f = ((EmacsView *) [self delegate])->emacsframe;
+  if (FRAME_PARENT_FRAME (f))
+    return frameRect;
+
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 1090
   // If separate spaces is on, it is like each screen is independent.  There is
   // no spanning of frames across screens.
@@ -10761,7 +10974,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
       IOReturn lockStatus = IOSurfaceLock (surface, 0, nil);
       if (lockStatus != kIOReturnSuccess)
-        NSLog (@"Failed to lock surface: %x", lockStatus);
+        NSLog (@"Failed to lock surface: %x", (unsigned int)lockStatus);
 
       [self copyContentsTo:surface];
 
@@ -10808,7 +11021,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
   IOReturn lockStatus = IOSurfaceUnlock (currentSurface, 0, nil);
   if (lockStatus != kIOReturnSuccess)
-    NSLog (@"Failed to unlock surface: %x", lockStatus);
+    NSLog (@"Failed to unlock surface: %x", (unsigned int)lockStatus);
 }
 
 
@@ -10849,7 +11062,8 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
   lockStatus = IOSurfaceLock (source, kIOSurfaceLockReadOnly, nil);
   if (lockStatus != kIOReturnSuccess)
-    NSLog (@"Failed to lock source surface: %x", lockStatus);
+    NSLog (@"Failed to lock source surface: %x",
+	   (unsigned int) lockStatus);
 
   sourceData = IOSurfaceGetBaseAddress (source);
   destinationData = IOSurfaceGetBaseAddress (destination);
@@ -10861,7 +11075,7 @@ nswindow_orderedIndex_sort (id w1, id w2, void *c)
 
   lockStatus = IOSurfaceUnlock (source, kIOSurfaceLockReadOnly, nil);
   if (lockStatus != kIOReturnSuccess)
-    NSLog (@"Failed to unlock source surface: %x", lockStatus);
+    NSLog (@"Failed to unlock source surface: %x", (unsigned int)lockStatus);
 }
 
 #undef CACHE_MAX_SIZE
@@ -11221,6 +11435,20 @@ This variable is ignored on macOS < 10.7 and GNUstep.  Default is t.  */);
 	       x_underline_at_descent_line,
      doc: /* SKIP: real doc in xterm.c.  */);
   x_underline_at_descent_line = 0;
+
+  /* TODO: add an "auto" mode that passes clicks through to "utility" UI
+     elements, selects windows, and so on, but doesn't pass them through
+     for commands in general--as with other applications.  */
+
+  DEFVAR_BOOL ("ns-click-through",
+	       ns_click_through,
+	       doc: /* Whether to pass activation clicks through to Emacs.
+When nil, if Emacs is not focused, the click that focuses Emacs will not
+be interpreted as a common.  If t, it will be.  For example, when nil,
+if Emacs is inactive, two clicks are needed to move point: the first to
+activate Emacs and the second to activate the mouse-1 binding.  When t,
+only a single click is needed.  */);
+  ns_click_through = YES;
 
   DEFSYM (Qx_underline_at_descent_line, "x-underline-at-descent-line");
 

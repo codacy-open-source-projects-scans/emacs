@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2001--2024 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2001--2025 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Rmail
@@ -776,6 +776,14 @@ to.  The @samp{To} field starts out as the address of the person who
 sent the message you received, and the @samp{CC} field starts out with
 all the other recipients of that message.
 
+@vindex rmail-re-abbrevs
+@vindex rmail-reply-prefix
+@vindex mail-re-regexps
+The @samp{Subject} header field may contain one or more instances of
+@samp{Re:} or localized variants thereof.  These are removed if they
+match @code{rmail-re-abbrevs} (which is initialized from
+@code{mail-re-regexps}), and @code{rmail-reply-prefix} is prepended.
+
 @vindex mail-dont-reply-to-names
   You can exclude certain recipients from being included automatically
 in replies, using the variable @code{mail-dont-reply-to-names}.  Its
@@ -1221,6 +1229,27 @@ summarizes the part's index, size, and content type.  Depending on the
 content type, it may also contain one or more buttons; these perform
 actions such as saving the part into a file.
 
+@vindex rmail-mime-save-action
+  When you save a MIME attachment to a file, Rmail can perform follow-up
+actions according to the value of @code{rmail-mime-save-action}.  By
+default, this value is @code{nil}, which means Rmail does nothing.
+Other predefined values are:
+
+@table @code
+@item visit-file
+Visit the saved file in Emacs.
+
+@item visit-directory
+Visit the file's directory in Dired and move point to the file.
+
+@item open-external
+Open the file with an external program appropriate for its type.
+@end table
+
+You can also set @code{rmail-mime-save-action} to a custom function.
+This function will be called with the absolute filename of the saved
+attachment as its only argument.
+
 @table @kbd
 @findex rmail-mime-toggle-hidden
 @item @key{RET}
@@ -1527,7 +1556,10 @@ This is equivalent to specifying the @samp{file} protocol:
 absolute file name of the @command{movemail} executable.  If it is
 @code{nil}, Rmail searches for @command{movemail} in the directories
 listed in @code{rmail-movemail-search-path}, then in @code{exec-path}
-(@pxref{Shell}), then in @code{exec-directory}.
+(@pxref{Shell}), then in @code{exec-directory}.  This variable should be
+customized before starting Rmail; if you customize it after starting
+Rmail, you will need to set @code{rmail-movemail-variant-in-use} to the
+@code{nil} value, and then restart Rmail.
 
 @node Remote Mailboxes
 @section Retrieving Mail from Remote Mailboxes

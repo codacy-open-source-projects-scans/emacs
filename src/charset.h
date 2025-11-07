@@ -1,5 +1,5 @@
 /* Header for charset handler.
-   Copyright (C) 2001-2024 Free Software Foundation, Inc.
+   Copyright (C) 2001-2025 Free Software Foundation, Inc.
    Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
      2005, 2006, 2007, 2008, 2009, 2010, 2011
      National Institute of Advanced Industrial Science and Technology (AIST)
@@ -285,7 +285,7 @@ extern int emacs_mule_charset[256];
 /* Return an index to Vcharset_hash_table of the charset whose symbol
    is SYMBOL.  */
 #define CHARSET_SYMBOL_HASH_INDEX(symbol)	\
-  hash_lookup (XHASH_TABLE (Vcharset_hash_table), symbol)
+  hash_find (XHASH_TABLE (Vcharset_hash_table), symbol)
 
 /* Return the attribute vector of CHARSET.  */
 #define CHARSET_ATTRIBUTES(charset) (charset)->attributes

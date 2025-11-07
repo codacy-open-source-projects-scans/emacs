@@ -1,6 +1,6 @@
 ;;; cc-vars.el --- user customization variables for CC Mode -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 1987, 1992-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 1987, 1992-2025 Free Software Foundation, Inc.
 
 ;; Authors:    2002- Alan Mackenzie
 ;;             1998- Martin Stjernholm
@@ -292,6 +292,7 @@ Here is the current list of valid syntactic element symbols:
  defun-block-intro	-- The first line in a top-level defun.
  class-open		-- Brace that opens a class definition.
  class-close		-- Brace that closes a class definition.
+ class-field-cont	-- Continuation of first line inside a class.
  inline-open		-- Brace that opens an in-class inline method.
  inline-close		-- Brace that closes an in-class inline method.
  func-decl-cont		-- The region between a function definition's
@@ -474,6 +475,7 @@ This has effect only for languages in which `c-dollar-in-ids' is
 non-nil, e.g.  C, C++, Objective C.  It covers languages where
 \"$\" is permitted in ids \"informally\", but only by some compilers."
   :type 'boolean
+  :version "30.1"
   :group 'c)
 
 (defcustom-c-stylevar c-basic-offset 4
@@ -1290,7 +1292,7 @@ can always override the use of `c-default-style' by making calls to
        ;; Anchor pos: Bol at the last line of previous construct.
        (topmost-intro-cont    . c-lineup-topmost-intro-cont)
        ;;Anchor pos: Bol at the topmost annotation line
-       (constraint-cont  . +)
+       (constraint-cont       . (c-lineup-item-after-paren-at-boi +))
        ;; Anchor pos: Boi of the starting requires/concept line
        (annotation-top-cont   .   0)
        ;;Anchor pos: Bol at the topmost annotation line
@@ -1300,6 +1302,9 @@ can always override the use of `c-default-style' by making calls to
        ;; Anchor pos: Boi at the func decl arglist open.
        (member-init-cont      . c-lineup-multi-inher)
        ;; Anchor pos: Beg of the first member init.
+       (class-field-cont      . c-lineup-class-field-cont)
+       ;; Anchor pos: BOI of the line containing the class keyword.
+       ;; 2nd pos: At the open brace.
        (inher-intro           . +)
        ;; Anchor pos: Boi at the class decl start.
        (inher-cont            . c-lineup-multi-inher)
@@ -1321,8 +1326,9 @@ can always override the use of `c-default-style' by making calls to
        ;; "typedef" token is ignored.
        (brace-list-close      . 0)
        ;; Anchor pos: At the brace list decl start(*).
-       (brace-list-intro      . +)
+       (brace-list-intro      . (c-lineup-item-after-paren-at-boi +))
        ;; Anchor pos: At the brace list decl start(*).
+       ;; 2nd pos: At the open brace.
        (brace-list-entry      . 0)
        ;; Anchor pos: At the first non-ws char after the open paren if
        ;; the first token is on the same line, otherwise boi at that
@@ -1334,9 +1340,10 @@ can always override the use of `c-default-style' by making calls to
        ;; enum construct.
        (enum-close            . 0)
        ;; Anchor pos: At the enum block open.
-       (enum-intro            . +)
+       (enum-intro            . (c-lineup-item-after-paren-at-boi +))
        ;; Anchor pos: The opening brace position when at boi, or boi
        ;; at the enum decl start(*).
+       ;; 2nd pos: At the open brace.
        (enum-entry            . 0)
        ;; Anchor pos: Normally, boi of the line containing the
        ;; previous token, but if that line also contains the opening
@@ -1563,7 +1570,7 @@ working due to this change."
 
 (defun c-make-font-lock-extra-types-blurb (mode1 mode2 example)
   (concat "\
-*List of extra types (aside from the type keywords) to recognize in "
+List of extra types (aside from the type keywords) to recognize in "
 mode1 " mode.
 Each list item should be a regexp matching a single identifier.
 " example "
@@ -1758,8 +1765,7 @@ this implicitly by reinitializing C/C++/Objc Mode on any buffer)."
   (setq c-noise-macro-with-parens-name-re
 	(cond ((null c-noise-macro-with-parens-names) regexp-unmatchable)
 	      ((consp c-noise-macro-with-parens-names)
-	       (concat (regexp-opt c-noise-macro-with-parens-names t)
-		       "\\([^[:alnum:]_$]\\|$\\)"))
+	       (regexp-opt c-noise-macro-with-parens-names 'symbols))
 	      ((stringp c-noise-macro-with-parens-names)
 	       (copy-sequence c-noise-macro-with-parens-names))
 	      (t (error "c-make-noise-macro-regexps: \
@@ -1767,8 +1773,7 @@ c-noise-macro-with-parens-names is invalid: %s" c-noise-macro-with-parens-names)
   (setq c-noise-macro-name-re
 	(cond ((null c-noise-macro-names) regexp-unmatchable)
 	      ((consp c-noise-macro-names)
-	       (concat (regexp-opt c-noise-macro-names t)
-		       "\\([^[:alnum:]_$]\\|$\\)"))
+	       (regexp-opt c-noise-macro-names 'symbols))
 	      ((stringp c-noise-macro-names)
 	       (copy-sequence c-noise-macro-names))
 	      (t (error "c-make-noise-macro-regexps: \
@@ -1812,11 +1817,7 @@ variables.")
 	  ((stringp c-macro-names-with-semicolon)
 	   (copy-sequence c-macro-names-with-semicolon))
 	  ((consp c-macro-names-with-semicolon)
-	   (concat
-	    "\\<"
-	    (regexp-opt c-macro-names-with-semicolon)
-	    "\\>"))   ; N.B. the PAREN param of regexp-opt isn't supported by
-		      ; all XEmacsen.
+	   (regexp-opt c-macro-names-with-semicolon 'symbols))
 	  ((null c-macro-names-with-semicolon)
 	   nil)
 	  (t (error "c-make-macro-with-semi-re: Invalid \

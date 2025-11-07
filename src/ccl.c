@@ -1,5 +1,5 @@
 /* CCL (Code Conversion Language) interpreter.
-   Copyright (C) 2001-2024 Free Software Foundation, Inc.
+   Copyright (C) 2001-2025 Free Software Foundation, Inc.
    Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
      2005, 2006, 2007, 2008, 2009, 2010, 2011
      National Institute of Advanced Industrial Science and Technology (AIST)
@@ -1375,7 +1375,7 @@ ccl_driver (struct ccl_program *ccl, int *source, int *destination, int src_size
 
 		eop = (FIXNUM_OVERFLOW_P (reg[RRR])
 		       ? -1
-		       : hash_lookup (h, make_fixnum (reg[RRR])));
+		       : hash_find (h, make_fixnum (reg[RRR])));
 		if (eop >= 0)
 		  {
 		    Lisp_Object opl;
@@ -1404,7 +1404,7 @@ ccl_driver (struct ccl_program *ccl, int *source, int *destination, int src_size
 
 		eop = (FIXNUM_OVERFLOW_P (i)
 		       ? -1
-		       : hash_lookup (h, make_fixnum (i)));
+		       : hash_find (h, make_fixnum (i)));
 		if (eop >= 0)
 		  {
 		    Lisp_Object opl;
@@ -2378,19 +2378,6 @@ syms_of_ccl (void)
   DEFVAR_LISP ("code-conversion-map-vector", Vcode_conversion_map_vector,
 	       doc: /* Vector of code conversion maps.  */);
   Vcode_conversion_map_vector = make_nil_vector (16);
-
-  DEFVAR_LISP ("font-ccl-encoder-alist", Vfont_ccl_encoder_alist,
-	       doc: /* Alist of fontname patterns vs corresponding CCL program.
-Each element looks like (REGEXP . CCL-CODE),
- where CCL-CODE is a compiled CCL program.
-When a font whose name matches REGEXP is used for displaying a character,
- CCL-CODE is executed to calculate the code point in the font
- from the charset number and position code(s) of the character which are set
- in CCL registers R0, R1, and R2 before the execution.
-The code point in the font is set in CCL registers R1 and R2
- when the execution terminated.
- If the font is single-byte font, the register R2 is not used.  */);
-  Vfont_ccl_encoder_alist = Qnil;
 
   DEFVAR_LISP ("translation-hash-table-vector", Vtranslation_hash_table_vector,
     doc: /* Vector containing all translation hash tables ever defined.

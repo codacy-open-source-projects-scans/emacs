@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual.
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 2001--2024 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 2001--2025 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @iftex
@@ -1494,9 +1494,10 @@ the Emacs Lisp Reference Manual
 @subsection Coding Standards
 @cindex coding standards for Emacs submissions
 
-Contributed code should follow the GNU Coding Standards
-@url{https://www.gnu.org/prep/standards/}.  This may also be available
-in info on your system.
+Contributed code should follow the GNU Coding Standards.  This manual
+is available online at @url{https://www.gnu.org/prep/standards/}.  It
+may also be available locally in Info on your system, see @pxref{Top,,,
+standards, GNU Coding Standards}.
 
 If it doesn't, we'll need to find someone to fix the code before we
 can use it.

@@ -1,6 +1,6 @@
 /* Graphical user interface functions for the Microsoft Windows API.
 
-Copyright (C) 1989, 1992-2024 Free Software Foundation, Inc.
+Copyright (C) 1989, 1992-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -237,26 +237,28 @@ typedef struct Emacs_GESTURECONFIG
 typedef BOOL (WINAPI * SetGestureConfig_proc) (HWND, DWORD, UINT,
 					       Emacs_PGESTURECONFIG, UINT);
 
-TrackMouseEvent_Proc track_mouse_event_fn = NULL;
-ImmGetCompositionString_Proc get_composition_string_fn = NULL;
-ImmGetContext_Proc get_ime_context_fn = NULL;
-ImmGetOpenStatus_Proc get_ime_open_status_fn = NULL;
-ImmSetOpenStatus_Proc set_ime_open_status_fn = NULL;
-ImmReleaseContext_Proc release_ime_context_fn = NULL;
-ImmSetCompositionWindow_Proc set_ime_composition_window_fn = NULL;
-MonitorFromPoint_Proc monitor_from_point_fn = NULL;
-GetMonitorInfo_Proc get_monitor_info_fn = NULL;
-MonitorFromWindow_Proc monitor_from_window_fn = NULL;
-EnumDisplayMonitors_Proc enum_display_monitors_fn = NULL;
-GetTitleBarInfo_Proc get_title_bar_info_fn = NULL;
+static TrackMouseEvent_Proc track_mouse_event_fn = NULL;
+static ImmGetCompositionString_Proc get_composition_string_fn = NULL;
+static ImmGetContext_Proc get_ime_context_fn = NULL;
+static ImmGetOpenStatus_Proc get_ime_open_status_fn = NULL;
+static ImmSetOpenStatus_Proc set_ime_open_status_fn = NULL;
+static ImmReleaseContext_Proc release_ime_context_fn = NULL;
+static ImmSetCompositionWindow_Proc set_ime_composition_window_fn = NULL;
+static MonitorFromPoint_Proc monitor_from_point_fn = NULL;
+static GetMonitorInfo_Proc get_monitor_info_fn = NULL;
+static MonitorFromWindow_Proc monitor_from_window_fn = NULL;
+static EnumDisplayMonitors_Proc enum_display_monitors_fn = NULL;
+static GetTitleBarInfo_Proc get_title_bar_info_fn = NULL;
+extern IsDebuggerPresent_Proc is_debugger_present;
 IsDebuggerPresent_Proc is_debugger_present = NULL;
+extern SetThreadDescription_Proc set_thread_description;
 SetThreadDescription_Proc set_thread_description = NULL;
-SetWindowTheme_Proc SetWindowTheme_fn = NULL;
-DwmSetWindowAttribute_Proc DwmSetWindowAttribute_fn = NULL;
-WTSUnRegisterSessionNotification_Proc WTSUnRegisterSessionNotification_fn = NULL;
-WTSRegisterSessionNotification_Proc WTSRegisterSessionNotification_fn = NULL;
-RegisterTouchWindow_proc RegisterTouchWindow_fn = NULL;
-SetGestureConfig_proc SetGestureConfig_fn = NULL;
+static SetWindowTheme_Proc SetWindowTheme_fn = NULL;
+static DwmSetWindowAttribute_Proc DwmSetWindowAttribute_fn = NULL;
+static WTSUnRegisterSessionNotification_Proc WTSUnRegisterSessionNotification_fn = NULL;
+static WTSRegisterSessionNotification_Proc WTSRegisterSessionNotification_fn = NULL;
+static RegisterTouchWindow_proc RegisterTouchWindow_fn = NULL;
+static SetGestureConfig_proc SetGestureConfig_fn = NULL;
 
 extern AppendMenuW_Proc unicode_append_menu;
 
@@ -264,6 +266,7 @@ extern AppendMenuW_Proc unicode_append_menu;
 static int ignore_ime_char = 0;
 
 /* W95 mousewheel handler */
+extern unsigned int msh_mousewheel;
 unsigned int msh_mousewheel = 0;
 
 /* Timers */
@@ -312,7 +315,7 @@ int w32_minor_version;
 int w32_build_number;
 
 /* If the OS is set to use dark mode.  */
-BOOL w32_darkmode = FALSE;
+static BOOL w32_darkmode = FALSE;
 
 /* Distinguish between Windows NT and Windows 95.  */
 int os_subtype;
@@ -574,7 +577,7 @@ typedef struct colormap_t
   COLORREF colorref;
 } colormap_t;
 
-colormap_t w32_color_map[] =
+static colormap_t w32_color_map[] =
 {
   {"snow"                      , PALETTERGB (255,250,250)},
   {"ghost white"               , PALETTERGB (248,248,255)},
@@ -3816,7 +3819,7 @@ w32_msg_pump (deferred_msg * msg_buf)
     }
 }
 
-deferred_msg * deferred_msg_head;
+static deferred_msg * deferred_msg_head;
 
 static deferred_msg *
 find_deferred_msg (HWND hwnd, UINT msg)
@@ -3975,6 +3978,13 @@ post_character_message (HWND hwnd, UINT msg,
 	|| (wmsg.dwModifiers == 0
 	    && w32_quit_key && wParam == w32_quit_key))
       {
+	/* See keyboard.c:handle_interrupt.  We repeat the same code
+           here to support the triple-C-g feature.  */
+	static int force_quit_count;
+	int count = NILP (Vquit_flag) ? 1 : force_quit_count + 1;
+	force_quit_count = count;
+	if (count == 3)
+	  Vinhibit_quit = Qnil;
 	Vquit_flag = Qt;
 
 	/* The choice of message is somewhat arbitrary, as long as
@@ -4154,7 +4164,7 @@ deliver_wm_chars (int do_translate, HWND hwnd, UINT msg, UINT wParam,
       windows_msg.time = GetMessageTime ();
       TranslateMessage (&windows_msg);
     }
-  count = get_wm_chars (hwnd, buf, sizeof (buf)/sizeof (*buf), 1,
+  count = get_wm_chars (hwnd, buf, ARRAYELTS (buf), 1,
 			/* The message may have been synthesized by
 			   who knows what; be conservative.  */
 			modifier_set (VK_LCONTROL)
@@ -6477,6 +6487,9 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          NULL, NULL, RES_TYPE_BOOLEAN);
   gui_default_parameter (f, parameters, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parameters, Qborders_respect_alpha_background,
+			 Qnil, "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
 
   /* Process alpha here (Bug#16619).  On XP this fails with child
      frames.  For `no-focus-on-map' frames delay processing of alpha
@@ -6620,6 +6633,9 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 
   gui_default_parameter (f, parameters, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parameters, Qborders_respect_alpha_background,
+			 Qnil, "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
 
   /* Make the window appear on the frame and enable display, unless
      the caller says not to.  However, with explicit parent, Emacs
@@ -7356,7 +7372,7 @@ static void compute_tip_xy (struct frame *, Lisp_Object, Lisp_Object,
 			    Lisp_Object, int, int, int *, int *);
 
 /* The frame of the currently visible tooltip.  */
-Lisp_Object tip_frame;
+static Lisp_Object tip_frame;
 
 /* The window-system window corresponding to the frame of the
    currently visible tooltip.  */
@@ -7364,16 +7380,16 @@ Window tip_window;
 
 /* A timer that hides or deletes the currently visible tooltip when it
    fires.  */
-Lisp_Object tip_timer;
+static Lisp_Object tip_timer;
 
 /* STRING argument of last `x-show-tip' call.  */
-Lisp_Object tip_last_string;
+static Lisp_Object tip_last_string;
 
 /* Normalized FRAME argument of last `x-show-tip' call.  */
-Lisp_Object tip_last_frame;
+static Lisp_Object tip_last_frame;
 
 /* PARMS argument of last `x-show-tip' call.  */
-Lisp_Object tip_last_parms;
+static Lisp_Object tip_last_parms;
 
 
 static void
@@ -7553,6 +7569,9 @@ w32_create_tip_frame (struct w32_display_info *dpyinfo, Lisp_Object parms)
                          "alpha", "Alpha", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qalpha_background, Qnil,
                          "alphaBackground", "AlphaBackground", RES_TYPE_NUMBER);
+  gui_default_parameter (f, parms, Qborders_respect_alpha_background, Qnil,
+                         "bordersRespectAlphaBackground",
+                         "BordersRespectAlphaBackground", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qinhibit_double_buffering, Qnil,
                          "inhibitDoubleBuffering", "InhibitDoubleBuffering",
                          RES_TYPE_BOOLEAN);
@@ -7574,7 +7593,7 @@ w32_create_tip_frame (struct w32_display_info *dpyinfo, Lisp_Object parms)
     Lisp_Object fg = Fframe_parameter (frame, Qforeground_color);
     Lisp_Object colors = Qnil;
 
-    call2 (Qface_set_after_frame_default, frame, Qnil);
+    calln (Qface_set_after_frame_default, frame, Qnil);
 
     if (!EQ (bg, Fframe_parameter (frame, Qbackground_color)))
       colors = Fcons (Fcons (Qbackground_color, bg), colors);
@@ -7723,7 +7742,7 @@ w32_hide_tip (bool delete)
 {
   if (!NILP (tip_timer))
     {
-      call1 (Qcancel_timer, tip_timer);
+      calln (Qcancel_timer, tip_timer);
       tip_timer = Qnil;
     }
 
@@ -7816,7 +7835,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	      Lisp_Object timer = tip_timer;
 
 	      tip_timer = Qnil;
-	      call1 (Qcancel_timer, timer);
+	      calln (Qcancel_timer, timer);
 	    }
 
 	  block_input ();
@@ -7867,11 +7886,11 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 		    }
 		  else
 		    tip_last_parms =
-		      call2 (Qassq_delete_all, parm, tip_last_parms);
+		      calln (Qassq_delete_all, parm, tip_last_parms);
 		}
 	      else
 		tip_last_parms =
-		  call2 (Qassq_delete_all, parm, tip_last_parms);
+		  calln (Qassq_delete_all, parm, tip_last_parms);
 	    }
 
 	  /* Now check if there's a parameter left in tip_last_parms with a
@@ -7931,6 +7950,11 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 	  return unbind_to (count, Qnil);
 	}
     }
+  else
+    /* Required by X11 drag and drop, and left here in the interests of
+       consistency and in the event drag and drop should be implemented
+       on W32.  */
+    tip_window = FRAME_W32_WINDOW (XFRAME (tip_frame));
 
   tip_f = XFRAME (tip_frame);
   window = FRAME_ROOT_WINDOW (tip_f);
@@ -8053,8 +8077,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
  start_timer:
   /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (Qrun_at_time, timeout, Qnil,
-		     Qx_hide_tip);
+  tip_timer = calln (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
 
   return unbind_to (count, Qnil);
 }
@@ -8379,8 +8402,7 @@ DEFUN ("x-file-dialog", Fx_file_dialog, Sx_file_dialog, 2, 5, 0,
 	  file_details_w->lStructSize = sizeof (*file_details_w);
 	/* Set up the inout parameter for the selected file name.  */
 	file_details_w->lpstrFile = filename_buf_w;
-	file_details_w->nMaxFile =
-	  sizeof (filename_buf_w) / sizeof (*filename_buf_w);
+	file_details_w->nMaxFile = ARRAYELTS (filename_buf_w);
 	file_details_w->hwndOwner = FRAME_W32_WINDOW (f);
 	/* Undocumented Bug in Common File Dialog:
 	   If a filter is not specified, shell links are not resolved.  */
@@ -8413,8 +8435,7 @@ DEFUN ("x-file-dialog", Fx_file_dialog, Sx_file_dialog, 2, 5, 0,
 	else
 	  file_details_a->lStructSize = sizeof (*file_details_a);
 	file_details_a->lpstrFile = filename_buf_a;
-	file_details_a->nMaxFile =
-	  sizeof (filename_buf_a) / sizeof (*filename_buf_a);
+	file_details_a->nMaxFile = ARRAYELTS (filename_buf_a);
 	file_details_a->hwndOwner = FRAME_W32_WINDOW (f);
 	file_details_a->lpstrFilter = filter_a;
 	file_details_a->lpstrInitialDir = dir_a;
@@ -8541,7 +8562,7 @@ DEFUN ("system-move-file-to-trash", Fsystem_move_file_to_trash,
 
   handler = Ffind_file_name_handler (filename, operation);
   if (!NILP (handler))
-    return call2 (handler, operation, filename);
+    return calln (handler, operation, filename);
   else
     {
       const char * path;
@@ -9729,7 +9750,7 @@ DEFUN ("file-system-info", Ffile_system_info, Sfile_system_info, 1, 1, 0,
   Lisp_Object handler = Ffind_file_name_handler (encoded, Qfile_system_info);
   if (!NILP (handler))
     {
-      value = call2 (handler, Qfile_system_info, encoded);
+      value = calln (handler, Qfile_system_info, encoded);
       if (CONSP (value) || NILP (value))
 	return value;
       error ("Invalid handler in `file-name-handler-alist'");
@@ -10316,8 +10337,8 @@ typedef struct MY_NOTIFYICONDATAW {
 #endif
 
 
-#define EMACS_TRAY_NOTIFICATION_ID  42	/* arbitrary */
-#define EMACS_NOTIFICATION_MSG      (WM_APP + 1)
+#define EMACS_TRAY_NOTIFICATION_ID_INIT  42	/* arbitrary */
+#define EMACS_NOTIFICATION_MSG           (WM_APP + 1)
 
 enum NI_Severity {
   Ni_None,
@@ -10382,14 +10403,16 @@ utf8_mbslen_lim (const char *str, int lim)
   return mblen;
 }
 
+static unsigned short last_tray_notification_id;
+
 /* Low-level subroutine to show tray notifications.  All strings are
    supposed to be unibyte UTF-8 encoded by the caller.  */
-static EMACS_INT
+static int
 add_tray_notification (struct frame *f, const char *icon, const char *tip,
 		       enum NI_Severity severity, unsigned timeout,
 		       const char *title, const char *msg)
 {
-  EMACS_INT retval = EMACS_TRAY_NOTIFICATION_ID;
+  int retval = -1;
 
   if (FRAME_W32_P (f))
     {
@@ -10416,7 +10439,12 @@ add_tray_notification (struct frame *f, const char *icon, const char *tip,
       else
 	nidw.cbSize = MYNOTIFYICONDATAW_V1_SIZE;		/* < W2K */
       nidw.hWnd = FRAME_W32_WINDOW (f);
-      nidw.uID = EMACS_TRAY_NOTIFICATION_ID;
+      if (!last_tray_notification_id)
+	last_tray_notification_id = EMACS_TRAY_NOTIFICATION_ID_INIT;
+      else
+	last_tray_notification_id++;
+      retval = last_tray_notification_id;
+      nidw.uID = last_tray_notification_id;
       nidw.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_INFO;
       nidw.uCallbackMessage = EMACS_NOTIFICATION_MSG;
       if (!*icon)
@@ -10639,16 +10667,19 @@ Note that versions of Windows before W2K support only `:icon' and `:tip'.
 You can pass the other parameters, but they will be ignored on
 those old systems.
 
-There can be at most one active notification at any given time.  An
-active notification must be removed by calling `w32-notification-close'
-before a new one can be shown.
+There can be at most one active notification at any given time per each
+Emacs frame.  An active notification must be removed by calling the
+function `w32-notification-close', with the same frame selected as the
+one which was selected when the notification was created, before a new
+one can be shown for the same frame.  The caller must track which
+notification was created from which frame, using the returned ID value.
 
 usage: (w32-notification-notify &rest PARAMS)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
 {
   struct frame *f = SELECTED_FRAME ();
   Lisp_Object arg_plist, lres;
-  EMACS_INT retval;
+  int retval;
   char *icon, *tip, *title, *msg;
   enum NI_Severity severity;
   unsigned timeout = 0;
@@ -10658,6 +10689,7 @@ usage: (w32-notification-notify &rest PARAMS)  */)
 
   if (nargs == 0 || !pfnShell_NotifyIconW)
     return Qnil;
+  CHECK_KEYWORD_ARGS (nargs);
 
   arg_plist = Flist (nargs, args);
 
@@ -10710,7 +10742,9 @@ usage: (w32-notification-notify &rest PARAMS)  */)
 DEFUN ("w32-notification-close",
        Fw32_notification_close, Sw32_notification_close,
        1, 1, 0,
-       doc: /* Remove the MS-Windows tray notification specified by its ID.  */)
+       doc: /* Remove the MS-Windows tray notification specified by its ID.
+The frame which was selected when the notification was created must
+be selected when removing the notification.  */)
   (Lisp_Object id)
 {
   struct frame *f = SELECTED_FRAME ();
@@ -10898,7 +10932,7 @@ w32_get_resource (const char *key, const char *name, LPDWORD lpdwtype)
  ***********************************************************************/
 
 typedef BOOL (WINAPI * SystemParametersInfoW_Proc) (UINT,UINT,PVOID,UINT);
-SystemParametersInfoW_Proc system_parameters_info_w_fn = NULL;
+static SystemParametersInfoW_Proc system_parameters_info_w_fn = NULL;
 
 DEFUN ("w32-set-wallpaper", Fw32_set_wallpaper, Sw32_set_wallpaper, 1, 1, 0,
        doc: /* Set the desktop wallpaper image to IMAGE-FILE.  */)
@@ -11009,6 +11043,7 @@ frame_parm_handler w32_frame_parm_handlers[] =
   0, /* x_set_override_redirect */
   gui_set_no_special_glyphs,
   gui_set_alpha_background,
+  gui_set_borders_respect_alpha_background,
   0, /* x_set_use_frame_synchronization */
 };
 
@@ -11066,9 +11101,9 @@ syms_of_w32fns (void)
   DEFSYM (Qjson, "json");
 
   Fput (Qundefined_color, Qerror_conditions,
-	pure_list (Qundefined_color, Qerror));
+	list (Qundefined_color, Qerror));
   Fput (Qundefined_color, Qerror_message,
-	build_pure_c_string ("Undefined color"));
+	build_string ("Undefined color"));
 
   staticpro (&w32_grabbed_keys);
   w32_grabbed_keys = Qnil;

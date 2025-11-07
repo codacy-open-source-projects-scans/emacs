@@ -1,6 +1,6 @@
 ;;; help-fns.el --- Complex help functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2024 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2025 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -135,11 +135,11 @@ with the current prefix.  The files are chosen according to
   :version "26.3")
 
 (defcustom help-enable-variable-value-editing nil
-  "If non-nil, allow editing values in *Help* buffers.
+  "If non-nil, allow editing variable values in *Help* buffers.
 
 To edit the value of a variable, use \\[describe-variable] to
 display a \"*Help*\" buffer, move point after the text
-\"Its value is\" and type \\`e'.
+\"Its value is\" and type \\`e' to invoke `help-fns-edit-variable'.
 
 Values that aren't readable by the Emacs Lisp reader can't be
 edited even if this option is enabled."
@@ -254,7 +254,7 @@ interactive command."
       (setq fn (intern val)))
     ;; These error messages are intended to be less technical for the
     ;; `describe-command' case, as they are directed at users that are
-    ;; not necessarily ELisp programmers.
+    ;; not necessarily Elisp programmers.
     (unless (and fn (symbolp fn))
       (user-error (if want-command
                       "You didn't specify a command's symbol"
@@ -624,8 +624,19 @@ the C sources, too."
               (let ((start (point)))
                 (help-fns--insert-menu-bindings
                  menus
-                 (concat "It can " (and keys "also ")
+                 (concat "It " (if remapped "could " "can ") (and keys "also ")
                          "be invoked from the menu: "))
+                (when remapped
+                  (princ ", but that was remapped to ")
+                  (princ (if (symbolp remapped)
+                             (format-message "`%s'" remapped)
+		           "an anonymous command"))
+                  (princ "as well.\n"))
+                ;; The (= (point) start) condition tests whether
+                ;; 'help-fns--insert-menu-bindings' inserted anything;
+                ;; if it didn't, we already have a period from the
+                ;; previous 'princ' call.
+                (or remapped (= (point) start) (princ "."))
                 (fill-region-as-paragraph start (point))))
             (ensure-empty-lines)))))))
 
@@ -649,7 +660,8 @@ the C sources, too."
          (lambda (entry level)
            (when (symbolp map)
              (setq map (symbol-function map)))
-           (when-let* ((elem (assq entry (cdr map))))
+           (when-let* ((elem (assq entry (cdr map)))
+                       (_ (proper-list-p elem)))
              (when (> level 0)
                (push sep string))
              (if (eq (nth 1 elem) 'menu-item)
@@ -759,17 +771,24 @@ the C sources, too."
               (high-doc (cdr high)))
           (unless (and (symbolp function)
                        (get function 'reader-construct))
-            (insert high-usage "\n")
-            (when-let* ((gate help-display-function-type)
-                        (res (comp-function-type-spec function))
-                        (type-spec (car res))
-                        (kind (cdr res)))
-              (insert (format
-                       (if (eq kind 'inferred)
-                           "\nInferred type: %s\n"
-                         "\nDeclared type: %s\n")
-                       type-spec))))
+            (insert high-usage "\n"))
           (fill-region fill-begin (point))
+          (when-let* (help-display-function-type
+                      (res (comp-function-type-spec function))
+                      (type-spec (car res))
+                      (kind (cdr res)))
+            (insert (if (eq kind 'inferred)
+                        "\nInferred type:\n  "
+                      "\nDeclared type:\n  "))
+            (with-demoted-errors "%S"
+              (let ((beg (point)))
+                (pp type-spec (current-buffer))
+                ;; Put it on a single line if it fits.
+                (and (eql beg (+ 2 (line-beginning-position 0)))
+                     (save-excursion
+                       (forward-char -1)
+                       (<= (current-column) (- fill-column 12)))
+                     (replace-region-contents (- beg 3) beg " " 0)))))
           high-doc)))))
 
 (defun help-fns--parent-mode (function)
@@ -943,48 +962,6 @@ TYPE indicates the namespace and is `fun' or `var'."
                       (setq first version))))))))))
     (when first
       (make-text-button first nil 'type 'help-news 'help-args place))))
-
-;; (defun help-fns--check-first-releases ()
-;;   "Compare the old liberal regexp to the new more restrictive one."
-;;   (interactive)
-;;   (let* ((quoted nil)
-;;          (rx-fun (lambda (orig-fun symbol)
-;;                    (if quoted
-;;                        (funcall orig-fun symbol)
-;;                      (format "\\_<%s\\_>"
-;;                              (regexp-quote (symbol-name symbol))))))
-;;          (count
-;;           (let ((count 0))
-;;             (obarray-map (lambda (sym)
-;;                            (when (or (fboundp sym) (boundp sym))
-;;                              (cl-incf count)))
-;;                          obarray)
-;;             count))
-;;          (p (make-progress-reporter "Check first releases..." 0 count)))
-;;     (with-current-buffer (get-buffer-create "*Check-first-release*")
-;;       (unwind-protect
-;;           (progn
-;;             (advice-add 'help-fns--first-release-regexp :around rx-fun)
-;;             (erase-buffer)
-;;             (setq count 0)
-;;             (obarray-map
-;;              (lambda (sym)
-;;                (when (or (fboundp sym) (boundp sym))
-;;                  (cl-incf count)
-;;                  (progress-reporter-update p count)
-;;                  (let ((vt (progn (setq quoted t)
-;;                                   (help-fns--first-release sym)))
-;;                        (vnil (progn (setq quoted nil)
-;;                                     (help-fns--first-release sym))))
-;;                    (when (and vnil (not (equal vt vnil)))
-;;                      (insert (symbol-name sym)
-;;                              "\nnot-quoted: " (or vnil "nil")
-;;                              "\nquoted:     " (or vt "nil")
-;;                              "\n\n")))))
-;;              obarray)
-;;             (progress-reporter-done p))
-;;         (advice-remove 'help-fns--first-release-regexp rx-fun))
-;;       (display-buffer (current-buffer)))))
 
 (add-hook 'help-fns-describe-function-functions
           #'help-fns--mention-first-function-release)
@@ -1184,15 +1161,22 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 		      (setq elts (cdr-safe elts)))
 		    (concat beg (if is-full "keymap" "sparse keymap"))))
 		 (t
-		  (concat beg (format "%s"
-		                      (if (and (consp def) (symbolp (car def)))
-		                          (car def)
-		                        (let ((type (or (oclosure-type def)
-		                                        (cl-type-of def))))
-		                          (make-text-button
-		                           (symbol-name type) nil
-		                           'type 'help-type
-		                           'help-args (list type))))))))))
+                  (let* ((type (or (oclosure-type def) (cl-type-of def)))
+                         (typ-str
+                          (format "%s"
+		                  (if (and (consp def) (symbolp (car def)))
+                                      (car def)
+                                    (make-text-button
+                                       (symbol-name type) nil
+                                       'type 'help-type
+                                       'help-args (list type))))))
+                    ;; FIXME: If someday Emacs has a function type symbol
+                    ;; like `unicode-function' or `hour-function', this
+                    ;; will produce an ungrammatical string (bug#79469).
+                    (concat (if (string-match-p "\\`[aeiou]" (symbol-name type))
+                                "an "
+                              beg)
+                            typ-str))))))
     (with-current-buffer standard-output
       (insert description))
 
@@ -1289,7 +1273,9 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 
 (defun help-fns--generalized-variable (function)
   (when (and (symbolp function)
-             (get function 'gv-expander)
+             (or (get function 'gv-expander)
+                 ;; This is a hack, see cl-macs.el:
+                 (get function 'document-generalized-variable))
              ;; Don't mention obsolete generalized variables.
              (not (get function 'byte-obsolete-generalized-variable)))
     (insert (format-message "  `%s' is also a " function)
@@ -1445,27 +1431,35 @@ it is displayed along with the global value."
 			     (format-message "`%s'" rep)
 			   rep)))
                       (start (point)))
-		  (if (< (+ (length print-rep) (point) (- line-beg)) 68)
-		      (insert " " print-rep)
-		    (terpri)
-                    (let ((buf (current-buffer)))
-                      (with-temp-buffer
-                        (lisp-data-mode)
-                        (set-syntax-table emacs-lisp-mode-syntax-table)
-                        (insert print-rep)
-                        (pp-buffer)
-                        (font-lock-ensure)
-                        (let ((pp-buffer (current-buffer)))
-                          (with-current-buffer buf
-                            (insert-buffer-substring pp-buffer)))))
-                    ;; Remove trailing newline.
-                    (and (= (char-before) ?\n) (delete-char -1)))
+		 (let (beg)
+		   (if (< (+ (length print-rep) (point) (- line-beg)) 68)
+		       (progn
+		         (setq beg (1+ (point)))
+		         (insert " " print-rep))
+		     (terpri)
+                     (setq beg (point))
+                     (let ((buf (current-buffer)))
+                       (with-temp-buffer
+                         (lisp-data-mode)
+                         (insert print-rep)
+                         (pp-buffer)
+                         (font-lock-ensure)
+                         (let ((pp-buffer (current-buffer)))
+                           (with-current-buffer buf
+                             (insert-buffer-substring pp-buffer))))))
+                   ;; Remove trailing newline.
+                   (and (= (char-before) ?\n) (delete-char -1))
+                   ;; Put a `syntax-table' property on the data, as
+                   ;; a kind of poor man's multi-major-mode support here.
+                   (put-text-property beg (point)
+		                      'syntax-table
+		                      lisp-data-mode-syntax-table))
                   (help-fns--editable-variable start (point)
                                                variable val buffer)
 		  (let* ((sv (get variable 'standard-value))
 			 (origval (and (consp sv)
 				       (condition-case nil
-					   (eval (car sv) t)
+					   (custom--standard-value variable)
 					 (error :help-eval-error))))
                          from)
 		    (when (and (consp sv)
@@ -1523,10 +1517,6 @@ it is displayed along with the global value."
 	    ;; If the value is large, move it to the end.
 	    (with-current-buffer standard-output
 	      (when (> (count-lines (point-min) (point-max)) 10)
-		;; Note that setting the syntax table like below
-		;; makes forward-sexp move over a `'s' at the end
-		;; of a symbol.
-		(set-syntax-table emacs-lisp-mode-syntax-table)
 		(goto-char val-start-pos)
 		(when (looking-at "value is") (replace-match ""))
 		(save-excursion
@@ -1583,16 +1573,37 @@ it is displayed along with the global value."
 
 (put 'help-fns-edit-variable 'disabled t)
 (defun help-fns-edit-variable ()
-  "Edit the variable under point."
+  "Edit the variable value at point in \"*Help*\" buffer.
+This command only works if `help-enable-variable-value-editing' is non-nil.
+
+To edit the value of a variable, use \\[describe-variable] followed by the name
+of a variable, to display a \"*Help*\" buffer, move point to
+the variable's value, usually after the text \"Its value is\", and
+type \\`e' to invoke this command.
+
+Values that aren't readable by the Emacs Lisp reader can't be edited
+by this command."
   (declare (completion ignore))
   (interactive)
   (let ((var (get-text-property (point) 'help-fns--edit-variable)))
     (unless var
       (error "No variable under point"))
-    (let ((str (read-string-from-buffer
-                (format ";; Edit the `%s' variable." (nth 0 var))
-                (prin1-to-string (nth 1 var)))))
-      (set (nth 0 var) (read str)))))
+    (string-edit
+     (format ";; Edit the `%s' variable." (nth 0 var))
+     (prin1-to-string (nth 1 var))
+     (lambda (edited)
+       (set (nth 0 var) edited)
+       (exit-recursive-edit))
+     :abort-callback
+     (lambda ()
+       (exit-recursive-edit)
+       (error "Aborted edit, variable unchanged"))
+     :major-mode-sym #'emacs-lisp-mode
+     :read #'read)
+    (recursive-edit)
+    (revert-buffer)))
+
+(autoload 'shortdoc-help-fns-examples-function "shortdoc")
 
 (defun help-fns--run-describe-functions (functions &rest args)
   (with-current-buffer standard-output
@@ -1613,12 +1624,28 @@ it is displayed along with the global value."
 (defun help-fns--customize-variable (variable &optional text)
   ;; Make a link to customize if this variable can be customized.
   (when (custom-variable-p variable)
-    (let ((customize-label "customize"))
+    (let ((customize-label "customize")
+          (custom-set (get variable 'custom-set))
+          (opoint (with-current-buffer standard-output
+                    (point))))
       (princ (concat "  You can " customize-label (or text " this variable.")))
+      (when (and custom-set
+                 ;; Don't override manually written documentation.
+                 (not (string-match (rx word-start "setopt" word-end)
+                                    (documentation-property
+                                     variable 'variable-documentation))))
+        (princ (substitute-quotes
+                (concat "\n  Setting this variable directly with `setq' may not take effect;"
+                        "\n  use either customize or `setopt'"
+                        ;; Skip text if `custom-set' property is an
+                        ;; anonymous function.
+                        (when (symbolp custom-set)
+                          (concat ", or call `" (symbol-name custom-set) "'"))
+                        "."))))
       (with-current-buffer standard-output
 	(save-excursion
-          (re-search-backward (concat "\\(" customize-label "\\)"))
-	  (help-xref-button 1 'help-customize-variable variable)))
+          (while (re-search-backward (concat "\\(" customize-label "\\)") opoint t)
+	    (help-xref-button 1 'help-customize-variable variable))))
       (terpri))))
 
 (add-hook 'help-fns-describe-variable-functions
@@ -1717,7 +1744,7 @@ variable.\n")))
       (insert "This variable is obsolete")
       (if (nth 2 obsolete)
           (insert (format " since %s" (nth 2 obsolete))))
-      (insert (cond ((stringp use) (concat "; " use))
+      (insert (cond ((stringp use) (substitute-command-keys (concat "; " use)))
 		    (use (format-message "; use `%s' instead."
                                          (car obsolete)))
 		    (t "."))
@@ -1976,7 +2003,8 @@ current buffer and the selected frame, respectively."
         (unless single
           ;; Don't record the `describe-variable' item in the stack.
           (setq help-xref-stack-item nil)
-          (help-setup-xref (list #'describe-symbol symbol) nil))
+          (let ((help-mode--current-data help-mode--current-data))
+            (help-setup-xref (list #'describe-symbol symbol) nil)))
         (goto-char (point-max))
         (help-xref--navigation-buttons)
         (goto-char (point-min))))))
@@ -2232,13 +2260,14 @@ is enabled in the Help buffer."
                      (describe-function major))))
           (insert " mode")
           (when-let* ((file-name (find-lisp-object-file-name major nil)))
-	    (insert (format " defined in %s:\n\n"
+	    (insert (format " defined in %s"
                             (buttonize
                              (help-fns-short-filename file-name)
                              (lambda (_)
                                (help-function-def--button-function
                                 major file-name))))))
-          (insert (help-split-fundoc (documentation major) nil 'doc)
+          (insert ":\n\n"
+                  (help-split-fundoc (documentation major) nil 'doc)
                   (with-current-buffer buffer
                     (help-fns--list-local-commands)))
           (ensure-empty-lines 1)

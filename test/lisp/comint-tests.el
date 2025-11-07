@@ -1,6 +1,6 @@
 ;;; comint-tests.el --- Tests for comint.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2010-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -38,18 +38,25 @@
     "Enter your password: "             ; python3 -m twine ... Bug#37636
     "Passphrase for key root@GNU.ORG: " ; plink
     "[sudo] password for user:" ; Ubuntu sudo
+    "[sudo: authenticate] Password:" ; sudo-rs
+    "[su: authenticate] Password:" ; su-rs
     "[sudo] user 的密码：" ; localized
     "doas (user@host) password:" ; OpenBSD doas
     "PIN for user:"        ; Bug#35523
     "Password (again):"
     "Enter password:"
     "(user@host) Password: " ; openssh-8.6p1
+    "(user@host) Password for user@host:" ; (Bug#79424)
     "Current password:"    ; "passwd" (to change password) in Debian.
     "Enter encryption key: " ; ccrypt
     "Enter decryption key: " ; ccrypt
     "Enter encryption key: (repeat) " ; ccrypt
     "Enter Auth Password:" ; OpenVPN (Bug#35724)
     "Verify password: "    ; zip -e zipfile.zip ... (Bug#47209)
+    "Vault password: "     ; ansible-playbook --ask-vault-pass ... (Bug#78442)
+    "Vault password (dev): " ; ansible-playbook --vault-id dev@prompt ... (Bug#78442)
+    "SSH password: "       ; ansible-playbook --ask-pass playbook.yml ... (Bug#78442)
+    "BECOME password: "    ; ansible-playbook --ask-become-pass ... (Bug#78442)
     "Mot de Passe :" ; localized (Bug#29729)
     "Passwort:") ; localized
   "List of strings that should match `comint-password-prompt-regexp'.")

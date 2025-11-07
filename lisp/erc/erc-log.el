@@ -1,6 +1,6 @@
 ;;; erc-log.el --- Logging facilities for ERC.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2025 Free Software Foundation, Inc.
 
 ;; Author: Lawrence Mitchell <wence@gmx.li>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -124,7 +124,8 @@ custom function which returns the directory part and set
 (defcustom erc-truncate-buffer-on-save nil
   "Erase the contents of any ERC (channel, query, server) buffer when it is saved."
   :type 'boolean)
-(make-obsolete 'erc-truncate-buffer-on-save 'erc-cmd-CLEAR "30.1")
+(make-obsolete-variable 'erc-truncate-buffer-on-save
+                        "maybe see command `erc-cmd-CLEAR'" "30.1")
 
 (defcustom erc-enable-logging t
   "If non-nil, ERC will log IRC conversations.
@@ -322,6 +323,7 @@ is writable (it will be created as necessary) and
   (or buffer (setq buffer (current-buffer)))
   (and erc-log-channels-directory
        (not erc-log--save-in-progress-p)
+       (not (erc--memq-msg-prop 'erc--skip 'log))
        (or (functionp erc-log-channels-directory)
            (if erc-log--check-writable-nocreate-p
                (file-writable-p erc-log-channels-directory)
@@ -360,13 +362,13 @@ The result is converted to lowercase, as IRC is case-insensitive."
 	 erc-log-channels-directory)))))
 
 (defun erc-generate-log-file-name-with-date (buffer &rest _ignore)
-  "Compute a short log file name with the current date.
+  "Return a short log file name with the current date.
 The name of the log file is composed of BUFFER and the current date.
 This function is a possible value for `erc-generate-log-file-name-function'."
   (concat (buffer-name buffer) "-" (format-time-string "%Y-%m-%d") ".txt"))
 
 (defun erc-generate-log-file-name-short (buffer &rest _ignore)
-  "Compute a short log file name.
+  "Return a short log file name.
 In fact, it only uses the buffer name of the BUFFER argument, so
 you can affect that using `rename-buffer' and the-like.  This
 function is a possible value for

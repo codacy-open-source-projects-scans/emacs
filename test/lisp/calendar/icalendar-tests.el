@@ -1,6 +1,6 @@
 ;;; icalendar-tests.el --- Test suite for icalendar.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2005, 2008-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2005, 2008-2025 Free Software Foundation, Inc.
 
 ;; Author:         Ulf Jasper <ulf.jasper@web.de>
 ;; Created:        March 2005
@@ -131,6 +131,22 @@
                       "\nDTEND;VALUE=DATE:20040828")
                      (car result)))
     (should (string= "Sommerferien" (cdr result)))))
+
+(ert-deftest icalendar--convert-float-to-ical ()
+  "Test method for `icalendar--convert-float-to-ical'."
+  ;; See Bug#78085
+  (let* ((calendar-date-style 'iso)
+         (icalendar-recurring-start-year 2025)
+         (first-saturday-date "20250104") ; first Sat. in 2025
+         result)
+    (setq result (icalendar--convert-float-to-ical
+                  "" "%%(diary-float t 6 1) 1st Sat/month"))
+    (should (consp result))
+    (should (string= (concat
+                      "\nDTSTART;VALUE=DATE:" first-saturday-date
+                      "\nRRULE:FREQ=MONTHLY;BYDAY=1SA")
+                     (car result)))
+    (should (string= "1st Sat/month" (cdr result)))))
 
 (ert-deftest icalendar--convert-yearly-to-ical ()
   "Test method for `icalendar--convert-yearly-to-ical'."

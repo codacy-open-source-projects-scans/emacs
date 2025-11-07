@@ -1,6 +1,6 @@
 ;;; erc.el --- An Emacs Internet Relay Chat client  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
 
 ;; Author: Alexander L. Belikoff <alexander@belikoff.net>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -12,7 +12,7 @@
 ;;               David Edmondson (dme@dme.org)
 ;;               Michael Olson (mwolson@gnu.org)
 ;;               Kelvin White (kwhite@gnu.org)
-;; Version: 5.6.1-git
+;; Version: 5.6.2-git
 ;; Package-Requires: ((emacs "27.1") (compat "29.1.4.5"))
 ;; Keywords: IRC, chat, client, Internet
 ;; URL: https://www.gnu.org/software/emacs/erc.html
@@ -70,7 +70,7 @@
 (require 'auth-source)
 (eval-when-compile (require 'subr-x))
 
-(defconst erc-version "5.6.1-git"
+(defconst erc-version "5.6.2-git"
   "This version of ERC.")
 
 (defvar erc-official-location
@@ -88,7 +88,8 @@
        ("5.4.1" . "29.1")
        ("5.5" . "29.1")
        ("5.6" . "30.1")
-       ("5.6.1" . "31.1")))
+       ("5.6.1" . "31.1")
+       ("5.6.2" . "31.1")))
 
 (defgroup erc nil
   "Emacs Internet Relay Chat client."
@@ -559,8 +560,14 @@ user from `erc-server-users'.  Note that enabling this compatibility
 flag degrades the user experience and isn't guaranteed to correctly
 restore the described historical behavior.")
 
-(cl-defmethod erc--queries-current-p ()
-  "Return non-nil if ERC actively updates query manifests."
+(defvar erc--query-table-synced-predicate #'erc--query-participant-present-p
+  "Predicate for whether a query buffer's member table dynamically updates.
+By default, ERC flies half blind by managing membership based on shared
+channels.  This rules out false positives but accepts the chance of
+participants being on the server but absent from local tables.")
+
+(defun erc--query-participant-present-p ()
+  "Return non-nil if the query participant is present in the member table."
   (and (not erc--decouple-query-and-channel-membership-p)
        (erc-query-buffer-p) (erc-get-channel-member (erc-target))))
 
@@ -677,6 +684,11 @@ Also remove members from the server table if this was their only buffer."
                      (funcall original-function nick user))))))
     (erc-remove-channel-users)))
 
+(defvar erc-channel-user-signal-if-status-unknown nil
+  "If non-nil ERC signals before setting an unadvertized status prefix.
+But only in ERC buffers.  Otherwise, if nil, accessors like
+`erc-channel-user-halfop' ignore such attempts and return nil.")
+
 (defmacro erc--define-channel-user-status-compat-getter (name c d)
   "Define accessor with gv getter for historical `erc-channel-user' slot NAME.
 Expect NAME to be a string, C to be its traditionally associated letter,
@@ -684,19 +696,30 @@ and D to be its fallback power-of-2 integer for non-ERC buffers.  Unlike
 pre-ERC-5.6 accessors, do not bother generating a compiler macro for
 inlining calls to these adapters."
   `(defun ,(intern (concat "erc-channel-user-" name)) (u)
-     ,(format "Get equivalent of pre-5.6 `%s' slot for `erc-channel-user'."
-              name)
-     (declare (gv-setter (lambda (v)
-                           (macroexp-let2 nil v v
-                             (,'\`(let ((val (erc-channel-user-status ,',u))
-                                        (n (or (erc--get-prefix-flag ,c) ,d)))
-                                    (setf (erc-channel-user-status ,',u)
-                                          (if ,',v
-                                              (logior val n)
-                                            (logand val (lognot n))))
-                                    ,',v))))))
-     (let ((n (or (erc--get-prefix-flag ,c) ,d)))
-       (= n (logand n (erc-channel-user-status u))))))
+     ,(concat
+       "Get equivalent of pre-5.6 `" name "' slot for `erc-channel-user'."
+       "\nUse a fallback value in non-ERC buffers.  Treat an unadvertised"
+       "\nstatus according to `erc-channel-user-signal-if-status-unknown'.")
+     (declare (gv-setter
+               (lambda (v)
+                 (macroexp-let2 nil v v
+                   (,'\`(let* ((val (erc-channel-user-status ,',u))
+                               (p (erc--parsed-prefix))
+                               (n (if p (or (erc--get-prefix-flag ,c p) 0) ,d))
+                               (nop (and p ,',v (zerop n))) ; unsupportedp
+                               (rv (and (not nop) ,',v)))
+                          (when (and nop
+                                     erc-channel-user-signal-if-status-unknown)
+                            (error "Unsupported status prefix: %c" ,c))
+                          (unless nop
+                            (setf (erc-channel-user-status ,',u)
+                                  (if ,',v
+                                      (logior val n)
+                                    (logand val (lognot n)))))
+                          rv))))))
+     (let* ((p (erc--parsed-prefix))
+            (n (if p (erc--get-prefix-flag ,c p) ,d)))
+       (and n (= n (logand n (erc-channel-user-status u)))))))
 
 (erc--define-channel-user-status-compat-getter "voice"  ?v 1)
 (erc--define-channel-user-status-compat-getter "halfop" ?h 2)
@@ -1272,10 +1295,11 @@ particular sessions and/or `let'-bound for spells."
   :group 'erc)
 
 (defcustom erc-mode-hook nil
-  "Hook run after `erc-mode' setup is finished."
+  "Hook run after `erc-mode' setup is finished.
+Members should be robust enough to run in any order and not depend on
+hook depth."
   :group 'erc-hooks
-  :type 'hook
-  :options '(erc-add-scroll-to-bottom))
+  :type 'hook)
 
 (defcustom erc-timer-hook nil
   "Abnormal hook run after each response handler.
@@ -1660,13 +1684,12 @@ capabilities."
 (defun erc--warn-once-before-connect (mode-var &rest args)
   "Display an \"error notice\" once.
 Expect ARGS to be `erc-button--display-error-notice-with-keys'
-compatible parameters, except without any leading buffers or
-processes.  If we're in an ERC buffer with a network process when
-called, print the notice immediately.  Otherwise, if we're in a
-server buffer, arrange to do so after local modules have been set
-up and mode hooks have run.  Otherwise, if MODE-VAR is a global
-module, try again at most once the next time `erc-mode-hook'
-runs."
+compatible parameters, except without any leading buffers or processes.
+If the current buffer has an `erc-server-process', print the notice
+immediately.  Otherwise, if it's a server buffer without a process,
+arrange to do so on `erc-connect-pre-hook'.  In non-ERC buffers, so long
+as MODE-VAR belongs to a global module, try again at most once the next
+time `erc-mode-hook' runs for any connection."
   (declare (indent 1))
   (cl-assert (stringp (car args)))
   (if (derived-mode-p 'erc-mode)
@@ -2661,7 +2684,9 @@ side effect of setting the current buffer to the one it returns.  Use
     (erc--initialize-markers old-point continued-session)
     (erc-determine-parameters server port nick full-name user passwd)
     (save-excursion (run-mode-hooks)
-                    (dolist (mod (car delayed-modules)) (funcall mod +1))
+                    (dolist (mod (car delayed-modules))
+                      (unless (and (boundp mod) (symbol-value mod))
+                        (funcall mod +1)))
                     (dolist (var (cdr delayed-modules)) (set var nil)))
 
     ;; Saving log file on exit
@@ -2918,8 +2943,8 @@ Example client certificate (CertFP) usage:
 
     (erc-tls :server \"irc.libera.chat\" :port 6697
              :client-certificate
-             \\='(\"/home/bandali/my-cert.key\"
-               \"/home/bandali/my-cert.crt\"))
+             \\='(\"/home/bandali/my-key.pem\"
+               \"/home/bandali/my-cert.pem\"))
 
 See the alternative entry-point command `erc' as well as Info
 node `(erc) Connecting' for a fuller description of the various
@@ -7081,7 +7106,7 @@ Used when a channel names list is about to be received.  Should
 be called with the current buffer set to the channel buffer.
 
 See also `erc-channel-end-receiving-names'."
-  (setq erc-channel-new-member-names (make-hash-table :test 'equal)))
+  (setq erc-channel-new-member-names (make-hash-table :test #'equal)))
 
 (defun erc-channel-end-receiving-names ()
   "Internal function.
@@ -7133,7 +7158,7 @@ stand-in from the fallback value \"(qaohv)~&@%+\"."
        :alist (nreverse alist)))))
 
 (defun erc--get-prefix-flag (char &optional parsed-prefix from-prefix-p)
-  "Return numeric rank for CHAR or nil if unknown.
+  "Return numeric rank for CHAR or nil if unknown or unsupported.
 For example, given letters \"qaohv\" return 1 for ?v, 2 for ?h,
 and 4 for ?o, etc.  If given, expect PARSED-PREFIX to be a
 `erc--parsed-prefix' object.  With FROM-PREFIX-P, expect CHAR to
@@ -9364,8 +9389,13 @@ If BUFFER is nil, update the mode line in all ERC buffers."
   (report-emacs-bug
    (format "ERC %s: %s" erc-version subject))
   (save-excursion
-    (goto-char (point-min))
-    (insert "X-Debbugs-CC: emacs-erc@gnu.org\n")))
+    (if (and (>= emacs-major-version 30)
+             (search-backward "X-Debbugs-CC: " nil t)
+             (goto-char (pos-eol))
+             (eq (char-before) ?\s))
+        (insert "emacs-erc@gnu.org")
+      (goto-char (point-min))
+      (insert "X-Debbugs-CC: emacs-erc@gnu.org\n"))))
 
 (defconst erc--news-url
   "https://git.savannah.gnu.org/cgit/emacs.git/plain/etc/ERC-NEWS")
@@ -9572,6 +9602,8 @@ SOFTP, only do so when defined as a variable."
    (ignore-list . "%-8p %s")
    (reconnecting . "Reconnecting in %ms: attempt %i/%n ...")
    (reconnect-canceled . "Canceled %u reconnect timer with %cs to go...")
+   (recon-probe-hung-up . "Server answered but hung up. Delaying by %ts...")
+   (recon-probe-nobody-home . "Nobody home...")
    (finished . "\n\n*** ERC finished ***\n")
    (terminated . "\n\n*** ERC terminated: %e\n")
    (login . "Logging in as `%n'...")
@@ -9730,7 +9762,7 @@ if yet untried."
   "Format MSG according to ARGS.
 
 See also `format-spec'."
-  (when (eq (logand (length args) 1) 1) ; oddp
+  (unless (cl-evenp (length args))
     (error "Obscure usage of this function appeared"))
   (let ((entry (erc-retrieve-catalog-entry msg)))
     (when (not entry)

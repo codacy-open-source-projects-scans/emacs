@@ -1,6 +1,6 @@
 ;;; em-prompt-tests.el --- em-prompt test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -26,11 +26,10 @@
 (require 'ert)
 (require 'eshell)
 (require 'em-prompt)
+(require 'ert-x)
 
 (require 'eshell-tests-helpers
-         (expand-file-name "eshell-tests-helpers"
-                           (file-name-directory (or load-file-name
-                                                    default-directory))))
+         (ert-resource-file "eshell-tests-helpers"))
 
 (defmacro em-prompt-test--with-multiline (&rest body)
   "Execute BODY with a multiline Eshell prompt."
@@ -92,8 +91,10 @@ This tests the case when `eshell-highlight-prompt' is nil."
   "Check that stickiness properties are properly merged on Eshell prompts."
   (let ((eshell-prompt-function
          (lambda ()
-           (concat (propertize (eshell/pwd) 'front-sticky '(front))
-                   (propertize "$ " 'rear-nonsticky '(rear))))))
+           (concat (propertize (eshell/pwd)
+                               'front-sticky '(front) 'rear-nonsticky t)
+                   (propertize "$ "
+                               'front-sticky t 'rear-nonsticky '(rear))))))
     (with-temp-eshell
      (eshell-insert-command "echo hello")
      (let ((last-prompt (field-string (1- eshell-last-input-start))))
@@ -106,13 +107,13 @@ This tests the case when `eshell-highlight-prompt' is nil."
                   'field 'prompt
                   'font-lock-face 'eshell-prompt
                   'front-sticky '(front read-only font-lock-face field)
-                  'rear-nonsticky '(read-only font-lock-face field))
+                  'rear-nonsticky t)
                  (propertize
                   "$ "
                   'read-only t
                   'field 'prompt
                   'font-lock-face 'eshell-prompt
-                  'front-sticky '(read-only font-lock-face field)
+                  'front-sticky t
                   'rear-nonsticky '(rear read-only font-lock-face field)))))))))
 
 (ert-deftest em-prompt-test/after-failure ()

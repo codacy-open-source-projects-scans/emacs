@@ -1,6 +1,6 @@
 /* Timestamp functions for Emacs
 
-Copyright (C) 1985-1987, 1989, 1993-2024 Free Software Foundation, Inc.
+Copyright (C) 1985-1987, 1989, 1993-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -138,6 +138,26 @@ make_timeval (struct timespec t)
   return tv;
 }
 
+/* Return the current time with an epoch specific to this Emacs instance
+   (e.g., system boot).  The clock should be unaffected by changes to
+   the system time, and should be cheap to access.  Its resolution
+   should be appropriate for human time scales, e.g., better than 10 ms.
+   Make do with realtime if such a clock is not available.  */
+struct timespec
+monotonic_coarse_timespec (void)
+{
+  struct timespec ts;
+#ifdef CLOCK_MONOTONIC_COARSE
+  if (clock_gettime (CLOCK_MONOTONIC_COARSE, &ts) == 0)
+    return ts;
+#elif defined CLOCK_MONOTONIC
+  if (clock_gettime (CLOCK_MONOTONIC, &ts) == 0)
+    return ts;
+#endif
+  ts = current_timespec ();
+  return ts;
+}
+
 /* Yield A's UTC offset, or an unspecified value if unknown.  */
 static long int
 tm_gmtoff (struct tm *a)
@@ -189,6 +209,7 @@ emacs_localtime_rz (timezone_t tz, time_t const *t, struct tm *tm)
      display-time) are in real danger of missing timezone and DST
      changes.  Calling tzset before each localtime call fixes that.  */
   tzset ();
+  w32_fix_tzset ();
 #endif
   tm = localtime_rz (tz, t, tm);
   if (!tm && errno == ENOMEM)
@@ -306,6 +327,9 @@ tzlookup (Lisp_Object zone, bool settz)
       block_input ();
       emacs_setenv_TZ (zone_string);
       tzset ();
+#ifdef WINDOWSNT
+      w32_fix_tzset ();
+#endif
       timezone_t old_tz = local_tz;
       local_tz = new_tz;
       tzfree (old_tz);
@@ -318,36 +342,7 @@ tzlookup (Lisp_Object zone, bool settz)
 void
 init_timefns (void)
 {
-#ifdef HAVE_UNEXEC
-  /* A valid but unlikely setting for the TZ environment variable.
-     It is OK (though a bit slower) if the user chooses this value.  */
-  static char dump_tz_string[] = "TZ=UtC0";
-
-  /* When just dumping out, set the time zone to a known unlikely value
-     and skip the rest of this function.  */
-  if (will_dump_with_unexec_p ())
-    {
-      xputenv (dump_tz_string);
-      tzset ();
-      return;
-    }
-#endif
-
   char *tz = getenv ("TZ");
-
-#ifdef HAVE_UNEXEC
-  /* If the execution TZ happens to be the same as the dump TZ,
-     change it to some other value and then change it back,
-     to force the underlying implementation to reload the TZ info.
-     This is needed on implementations that load TZ info from files,
-     since the TZ file contents may differ between dump and execution.  */
-  if (tz && strcmp (tz, &dump_tz_string[tzeqlen]) == 0)
-    {
-      ++*tz;
-      tzset ();
-      --*tz;
-    }
-#endif
 
   /* Set the time zone rule now, so that the call to putenv is done
      before multiple threads are active.  */
@@ -1328,21 +1323,23 @@ or (if you need time as a string) `format-time-string'.  */)
 
 /* Write information into buffer S of size MAXSIZE, according to the
    FORMAT of length FORMAT_LEN, using time information taken from *TP.
+   FORMAT[FORMATLEN] must be NUL.
    Use the time zone specified by TZ.
    Use NS as the number of nanoseconds in the %N directive.
-   Return the number of bytes written, not including the terminating
-   '\0'.  If S is NULL, nothing will be written anywhere; so to
+   Return the number of bytes written, not including the terminating NUL.
+   On error return -1, setting errno and possibly writing some bytes.
+
+   If S is NULL, nothing will be written anywhere; so to
    determine how many bytes would be written, use NULL for S and
-   ((size_t) -1) for MAXSIZE.
+   SIZE_MAX for MAXSIZE.
 
    This function behaves like nstrftime, except it allows null
    bytes in FORMAT.  */
-static size_t
+static ptrdiff_t
 emacs_nmemftime (char *s, size_t maxsize, const char *format,
 		 size_t format_len, const struct tm *tp, timezone_t tz, int ns)
 {
-  int saved_errno = errno;
-  size_t total = 0;
+  ptrdiff_t total = 0;
 
   /* Loop through all the null-terminated strings in the format
      argument.  Normally there's just one null-terminated string, but
@@ -1351,24 +1348,24 @@ emacs_nmemftime (char *s, size_t maxsize, const char *format,
      '\0' byte so we must invoke it separately for each such string.  */
   for (;;)
     {
-      errno = 0;
-      size_t result = nstrftime (s, maxsize, format, tp, tz, ns);
-      if (result == 0 && errno != 0)
+      ptrdiff_t result = nstrftime (s, maxsize, format, tp, tz, ns);
+      if (result < 0)
 	return result;
-      if (s)
-	s += result + 1;
-
-      maxsize -= result + 1;
-      total += result;
       size_t len = strlen (format);
+      if (ckd_add (&total, total, result + (len != format_len)))
+	{
+	  errno = ERANGE;
+	  return -1;
+	}
       if (len == format_len)
 	break;
-      total++;
+      if (s)
+	s += result + 1;
+      maxsize -= result + 1;
       format += len + 1;
       format_len -= len + 1;
     }
 
-  errno = saved_errno;
   return total;
 }
 
@@ -1378,9 +1375,7 @@ format_time_string (char const *format, ptrdiff_t formatlen,
 {
   char buffer[4000];
   char *buf = buffer;
-  ptrdiff_t size = sizeof buffer;
-  size_t len;
-  int ns = t.tv_nsec;
+  ptrdiff_t len = -1;
   USE_SAFE_ALLOCA;
 
   timezone_t tz = tzlookup (zone, false);
@@ -1389,34 +1384,29 @@ format_time_string (char const *format, ptrdiff_t formatlen,
      expects a pointer to time_t value.  */
   time_t tsec = t.tv_sec;
   tmp = emacs_localtime_rz (tz, &tsec, tmp);
-  if (! tmp)
+  if (tmp)
     {
-      int localtime_errno = errno;
-      xtzfree (tz);
-      time_error (localtime_errno);
-    }
-  synchronize_system_time_locale ();
-
-  while (true)
-    {
-      errno = 0;
-      len = emacs_nmemftime (buf, size, format, formatlen, tmp, tz, ns);
-      if (len != 0 || errno == 0)
-	break;
-      eassert (errno == ERANGE);
-
-      /* Buffer was too small, so make it bigger and try again.  */
-      len = emacs_nmemftime (NULL, SIZE_MAX, format, formatlen, tmp, tz, ns);
-      if (STRING_BYTES_BOUND <= len)
+      synchronize_system_time_locale ();
+      int ns = t.tv_nsec;
+      len = emacs_nmemftime (buffer, sizeof buffer, format, formatlen,
+			     tmp, tz, ns);
+      if (len < 0 && errno == ERANGE)
 	{
-	  xtzfree (tz);
-	  string_overflow ();
+	  /* Buffer was too small, so make it bigger and try again.  */
+	  len = emacs_nmemftime (NULL, SIZE_MAX, format, formatlen,
+				 tmp, tz, ns);
+	  if (0 <= len && len < STRING_BYTES_BOUND)
+	    {
+	      buf = SAFE_ALLOCA (len + 1);
+	      len = emacs_nmemftime (buf, len + 1, format, formatlen,
+				     tmp, tz, ns);
+	    }
 	}
-      size = len + 1;
-      buf = SAFE_ALLOCA (size);
     }
 
   xtzfree (tz);
+  if (len < 0)
+    time_error (errno);
   AUTO_STRING_WITH_LEN (bufstring, buf, len);
   Lisp_Object result = code_convert_string_norecord (bufstring,
 						     Vlocale_coding_system, 0);
@@ -1575,11 +1565,10 @@ usage: (decode-time &optional TIME ZONE FORM)  */)
   struct tm local_tm, gmt_tm;
   timezone_t tz = tzlookup (zone, false);
   struct tm *tm = emacs_localtime_rz (tz, &time_spec, &local_tm);
-  int localtime_errno = errno;
   xtzfree (tz);
 
   if (!tm)
-    time_error (localtime_errno);
+    time_error (errno);
 
   /* Let YEAR = LOCAL_TM.tm_year + TM_YEAR_BASE.  */
   Lisp_Object year;
@@ -1770,11 +1759,10 @@ usage: (encode-time TIME &rest OBSOLESCENT-ARGUMENTS)  */)
   timezone_t tz = tzlookup (zone, false);
   tm.tm_wday = -1;
   time_t value = mktime_z (tz, &tm);
-  int mktime_errno = errno;
   xtzfree (tz);
 
   if (tm.tm_wday < 0)
-    time_error (mktime_errno);
+    time_error (errno);
 
   if (BASE_EQ (hz, make_fixnum (1)))
     return (current_time_list
@@ -1885,10 +1873,9 @@ without consideration for daylight saving time.  */)
      range -999 .. 9999.  */
   struct tm tm;
   struct tm *tmp = emacs_localtime_rz (tz, &value, &tm);
-  int localtime_errno = errno;
   xtzfree (tz);
   if (! tmp)
-    time_error (localtime_errno);
+    time_error (errno);
 
   static char const wday_name[][4] =
     { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
@@ -1950,15 +1937,24 @@ the data it can't find.  */)
 	  /* No local time zone name is available; use numeric zone instead.  */
 	  long int hour = offset / 3600;
 	  int min_sec = offset % 3600;
-	  int amin_sec = min_sec < 0 ? - min_sec : min_sec;
-	  int min = amin_sec / 60;
-	  int sec = amin_sec % 60;
-	  int min_prec = min_sec ? 2 : 0;
-	  int sec_prec = sec ? 2 : 0;
-	  char buf[sizeof "+0000" + INT_STRLEN_BOUND (long int)];
-	  zone_name = make_formatted_string (buf, "%c%.2ld%.*d%.*d",
-					     (offset < 0 ? '-' : '+'),
-					     hour, min_prec, min, sec_prec, sec);
+	  char buf[INT_STRLEN_BOUND (long int) + sizeof "5959"];
+	  int buflen = 0;
+	  buf[buflen++] = offset < 0 ? '-' : '+';
+	  buflen += sprintf (buf + buflen, "%.2ld", eabs (hour));
+	  if (min_sec)
+	    {
+	      int amin_sec = eabs (min_sec);
+	      int min = amin_sec / 60;
+	      int sec = amin_sec % 60;
+	      buf[buflen++] = '0' + min / 10;
+	      buf[buflen++] = '0' + min % 10;
+	      if (sec)
+		{
+		  buf[buflen++] = '0' + sec / 10;
+		  buf[buflen++] = '0' + sec % 10;
+		}
+	    }
+	  zone_name = make_string (buf, buflen);
 	}
     }
 
@@ -1987,16 +1983,24 @@ former.  */)
   return Qnil;
 }
 
+#ifndef MSDOS
+
 /* A buffer holding a string of the form "TZ=value", intended
    to be part of the environment.  If TZ is supposed to be unset,
    the buffer string is "tZ=".  */
  static char *tzvalbuf;
 
+#endif /* !MSDOS */
+
 /* Get the local time zone rule.  */
 char *
 emacs_getenv_TZ (void)
 {
+#ifndef MSDOS
   return tzvalbuf[0] == 'T' ? tzvalbuf + tzeqlen : 0;
+#else /* MSDOS */
+  return getenv ("TZ");
+#endif /* MSDOS */
 }
 
 /* Set the local time zone rule to TZSTRING, which can be null to
@@ -2010,6 +2014,7 @@ emacs_getenv_TZ (void)
 int
 emacs_setenv_TZ (const char *tzstring)
 {
+#ifndef MSDOS
   static ptrdiff_t tzvalbufsize;
   ptrdiff_t tzstringlen = tzstring ? strlen (tzstring) : 0;
   char *tzval = tzvalbuf;
@@ -2064,6 +2069,21 @@ emacs_setenv_TZ (const char *tzstring)
     xputenv (tzval);
 
   return 0;
+#else /* MSDOS */
+  /* Happily, there are no threads on MS-DOS that might be contending
+     with Emacs for access to TZ.  Call putenv to modify TZ: the code
+     above is not only unnecessary but results in modifications being
+     omitted in consequence of an internal environment counter
+     remaining unchanged despite DJGPP being all too ready to reuse
+     preexisting environment storage.  */
+  USE_SAFE_ALLOCA;
+  char *buf = SAFE_ALLOCA (tzeqlen + strlen (tzstring) + 1);
+  strcpy (buf, "TZ=");
+  strcpy (buf + tzeqlen, tzstring);
+  xputenv (buf);
+  SAFE_FREE ();
+  return 0;
+#endif /* MSDOS */
 }
 
 #ifdef NEED_ZTRILLION_INIT

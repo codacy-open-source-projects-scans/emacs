@@ -1,6 +1,6 @@
 ;;; jsonrpc-tests.el --- tests for jsonrpc.el        -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2025 Free Software Foundation, Inc.
 
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords: tests
@@ -76,7 +76,6 @@
           (setq endpoint
                 (make-instance
                  'jsonrpc--test-client
-                 "Emacs RPC client"
                  :process
                  (open-network-stream "JSONRPC test tcp endpoint"
                                       nil "localhost"

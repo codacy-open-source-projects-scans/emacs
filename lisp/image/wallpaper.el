@@ -1,6 +1,6 @@
 ;;; wallpaper.el --- Change the desktop background  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
 
 ;; Author: Stefan Kangas <stefankangas@gmail.com>
 ;; Keywords: images
@@ -56,7 +56,7 @@
 
 (eval-when-compile (require 'subr-x))
 (require 'xdg)
-(require 'cl-macs)
+(eval-when-compile (require 'cl-lib))
 
 (defvar wallpaper-debug nil
   "If non-nil, display debug messages.")

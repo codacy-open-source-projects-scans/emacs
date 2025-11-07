@@ -1,6 +1,6 @@
 /* Functions for creating and updating GTK widgets.
 
-Copyright (C) 2003-2024 Free Software Foundation, Inc.
+Copyright (C) 2003-2025 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -36,6 +36,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 typedef struct x_output xp_output;
 #else
 #define xp pgtk
+#include "xsettings.h"
 typedef struct pgtk_output xp_output;
 #endif
 #include "blockinput.h"
@@ -1070,19 +1071,27 @@ xg_set_geometry (struct frame *f)
 	     be off by scrollbar width + window manager decorations.  */
 #ifndef HAVE_PGTK
 	  if (f->size_hint_flags & XNegative)
-	    f->left_pos = (x_display_pixel_width (FRAME_DISPLAY_INFO (f))
+	    f->left_pos = ((FRAME_PARENT_FRAME (f)
+			    ? FRAME_PIXEL_WIDTH (FRAME_PARENT_FRAME (f))
+			    : x_display_pixel_width (FRAME_DISPLAY_INFO (f)))
 			   - FRAME_PIXEL_WIDTH (f) + f->left_pos);
 
 	  if (f->size_hint_flags & YNegative)
-	    f->top_pos = (x_display_pixel_height (FRAME_DISPLAY_INFO (f))
+	    f->top_pos = ((FRAME_PARENT_FRAME (f)
+			   ? FRAME_PIXEL_HEIGHT (FRAME_PARENT_FRAME (f))
+			   : x_display_pixel_height (FRAME_DISPLAY_INFO (f)))
 			  - FRAME_PIXEL_HEIGHT (f) + f->top_pos);
 #else
 	  if (f->size_hint_flags & XNegative)
-	    f->left_pos = (pgtk_display_pixel_width (FRAME_DISPLAY_INFO (f))
+	    f->left_pos = ((FRAME_PARENT_FRAME (f)
+			    ? FRAME_PIXEL_WIDTH (FRAME_PARENT_FRAME (f))
+			    : pgtk_display_pixel_width (FRAME_DISPLAY_INFO (f)))
 			   - FRAME_PIXEL_WIDTH (f) + f->left_pos);
 
 	  if (f->size_hint_flags & YNegative)
-	    f->top_pos = (pgtk_display_pixel_height (FRAME_DISPLAY_INFO (f))
+	    f->top_pos = ((FRAME_PARENT_FRAME (f)
+			   ? FRAME_PIXEL_HEIGHT (FRAME_PARENT_FRAME (f))
+			   : pgtk_display_pixel_height (FRAME_DISPLAY_INFO (f)))
 			  - FRAME_PIXEL_HEIGHT (f) + f->top_pos);
 #endif
 
@@ -1424,13 +1433,9 @@ xg_set_widget_bg (struct frame *f, GtkWidget *w, unsigned long pixel)
   xbg.blue |= xbg.blue << 8;
 #endif
     {
-      const char format[] = "* { background-color: #%02x%02x%02x; }";
-      /* The format is always longer than the resulting string.  */
-      char buffer[sizeof format];
-      int n = snprintf(buffer, sizeof buffer, format,
-                       xbg.red >> 8, xbg.green >> 8, xbg.blue >> 8);
-      eassert (n > 0);
-      eassert (n < sizeof buffer);
+      static char const format[] = "* { background-color: #%02x%02x%02x; }";
+      char buffer[sizeof format + 3 * INT_STRLEN_BOUND (xbg.red)];
+      sprintf (buffer, format, xbg.red >> 8, xbg.green >> 8, xbg.blue >> 8);
       GtkCssProvider *provider = gtk_css_provider_new ();
       gtk_css_provider_load_from_data (provider, buffer, -1, NULL);
       gtk_style_context_add_provider (gtk_widget_get_style_context(w),
@@ -1445,6 +1450,43 @@ xg_set_widget_bg (struct frame *f, GtkWidget *w, unsigned long pixel)
   gtk_widget_modify_bg (FRAME_GTK_WIDGET (f), GTK_STATE_NORMAL, &bg);
 #endif
 }
+
+/* Apply dark mode preference to GTK window decorations.  */
+
+#if defined HAVE_PGTK && defined HAVE_GSETTINGS
+void
+xg_set_gtk_theme_dark_mode (bool dark_mode_p, GtkSettings *settings)
+{
+  g_object_set (settings, "gtk-application-prefer-dark-theme",
+                dark_mode_p ? TRUE : FALSE, NULL);
+}
+
+/* Update all frames' dark mode based on system setting.  */
+
+void
+xg_update_dark_mode_for_all_displays (bool dark_mode_p)
+{
+   struct pgtk_display_info *dpyinfo;
+   for (dpyinfo = x_display_list; dpyinfo; dpyinfo = dpyinfo->next)
+     {
+       GdkScreen *screen
+	 = gdk_display_get_default_screen (dpyinfo->gdpy);
+       GtkSettings *settings
+	 = gtk_settings_get_for_screen (screen);
+       xg_set_gtk_theme_dark_mode (dark_mode_p, settings);
+     }
+}
+
+/* Set initial dark mode for a new frame (called during frame
+ * creation).  */
+
+void
+xg_set_initial_dark_mode (struct frame *f)
+{
+  bool dark_mode_p = xg_get_system_dark_mode ();
+  xg_update_dark_mode_for_all_displays (dark_mode_p);
+}
+#endif	/* HAVE_PGTK && HAVE_GSETTINGS */
 
 /* Callback called when the gtk theme changes.
    We notify lisp code so it can fix faces used for region for example.  */
@@ -1735,7 +1777,6 @@ xg_create_frame_widgets (struct frame *f)
   g_signal_connect (wtop, "query-tooltip", G_CALLBACK (qttip_cb), f);
 
   imc = gtk_im_multicontext_new ();
-  g_object_ref (imc);
   gtk_im_context_set_use_preedit (imc, TRUE);
 
   g_signal_connect (G_OBJECT (imc), "commit",
@@ -1765,6 +1806,10 @@ xg_create_frame_widgets (struct frame *f)
                           gdk_screen_get_display (screen));
       }
   }
+
+#if defined HAVE_PGTK && defined HAVE_GSETTINGS
+  xg_set_initial_dark_mode (f);
+#endif
 
   unblock_input ();
 
@@ -1848,10 +1893,6 @@ xg_create_frame_outer_widgets (struct frame *f)
   f->output_data.xp->ttip_widget = 0;
   f->output_data.xp->ttip_lbl = 0;
   f->output_data.xp->ttip_window = 0;
-#ifndef HAVE_PGTK
-  gtk_widget_set_tooltip_text (wtop, "Dummy text");
-  g_signal_connect (wtop, "query-tooltip", G_CALLBACK (qttip_cb), f);
-#endif
 
   {
     GdkScreen *screen = gtk_widget_get_screen (wtop);
@@ -1869,9 +1910,13 @@ xg_create_frame_outer_widgets (struct frame *f)
       }
   }
 
+#ifdef HAVE_GSETTINGS
+  xg_set_initial_dark_mode (f);
+#endif
+
   unblock_input ();
 }
-#endif
+#endif	/* HAVE_PGTK */
 
 void
 xg_free_frame_widgets (struct frame *f)
@@ -1884,6 +1929,12 @@ xg_free_frame_widgets (struct frame *f)
                              TB_INFO_KEY);
       if (tbinfo)
         xfree (tbinfo);
+
+      if (x->toolbar_widget && !x->toolbar_is_packed)
+	{
+	  gtk_widget_destroy (x->toolbar_widget);
+	  x->toolbar_widget = NULL;
+	}
 
       /* x_free_frame_resources should have taken care of it */
 #ifndef HAVE_PGTK
@@ -5506,7 +5557,7 @@ find_rtl_image (struct frame *f, Lisp_Object image, Lisp_Object rtl)
       Lisp_Object rtl_image = PROP (TOOL_BAR_ITEM_IMAGES);
       if (!NILP (file = file_for_image (rtl_image)))
         {
-          file = call1 (Qfile_name_sans_extension,
+          file = calln (Qfile_name_sans_extension,
 			Ffile_name_nondirectory (file));
           if (! NILP (Fequal (file, rtl_name)))
             {
@@ -5920,7 +5971,7 @@ update_frame_tool_bar (struct frame *f)
 
       specified_file = file_for_image (image);
       if (!NILP (specified_file) && !NILP (Ffboundp (Qx_gtk_map_stock)))
-        stock = call1 (Qx_gtk_map_stock, specified_file);
+        stock = calln (Qx_gtk_map_stock, specified_file);
 
       if (CONSP (stock))
         {
@@ -6081,12 +6132,12 @@ update_frame_tool_bar (struct frame *f)
         xg_pack_tool_bar (f, FRAME_TOOL_BAR_POSITION (f));
       gtk_widget_show_all (x->toolbar_widget);
       if (xg_update_tool_bar_sizes (f))
-	/* It's not entirely clear whether here we want a treatment
-	   similar to that for frames with internal tool bar.  */
-	adjust_frame_size (f, -1, -1, 2, 0, Qtool_bar_lines);
-
-      f->tool_bar_resized = f->tool_bar_redisplayed;
+	adjust_frame_size (f, -1, -1, 2, false, Qtool_bar_lines);
     }
+
+  /* Set this regardless of whether a tool bar was made or not.  It's
+     needed for 'frame-inhibit-implied-resize' to work on GTK.  */
+  f->tool_bar_resized = true;
 
   unblock_input ();
 }
@@ -6117,8 +6168,7 @@ free_frame_tool_bar (struct frame *f)
       else
         gtk_widget_destroy (x->toolbar_widget);
 
-      x->toolbar_widget = 0;
-      x->toolbar_widget = 0;
+      x->toolbar_widget = NULL;
       x->toolbar_is_packed = false;
       FRAME_TOOLBAR_TOP_HEIGHT (f) = FRAME_TOOLBAR_BOTTOM_HEIGHT (f) = 0;
       FRAME_TOOLBAR_LEFT_WIDTH (f) = FRAME_TOOLBAR_RIGHT_WIDTH (f) = 0;

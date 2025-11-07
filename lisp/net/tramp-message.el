@@ -1,6 +1,6 @@
 ;;; tramp-message.el --- Tramp messages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2025 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -56,7 +56,6 @@
 (defvar tramp-repository-branch)
 (defvar tramp-repository-version)
 
-;;;###tramp-autoload
 (defcustom tramp-verbose 3
   "Verbosity level for Tramp messages.
 Any level x includes messages for all levels 1 .. x-1.  The levels are
@@ -94,6 +93,15 @@ This increases `tramp-verbose' to 6 if necessary."
   :type 'boolean
   :link '(info-link :tag "Tramp manual" "(tramp) Traces and Profiles"))
 
+(defcustom tramp-debug-buffer-limit (* 100 1024 1024) ;100MB
+  "The upper limit of a Tramp debug buffer.
+If the size of a debug buffer exceeds this limit, a warning is raised.
+Set it to 0 if there is no limit."
+  :group 'tramp
+  :version "31.1"
+  :type 'natnum
+  :link '(info-link :tag "Tramp manual" "(tramp) Traces and Profiles"))
+
 (defconst tramp-debug-outline-regexp
   (rx ;; Timestamp.
       (+ digit) ":" (+ digit) ":" (+ digit) "." (+ digit) blank
@@ -109,7 +117,7 @@ When it is used for regexp matching, the regexp groups are
   3 for the verbosity level.")
 
 (defconst tramp-debug-font-lock-keywords
-  ;; FIXME: Make it a function instead of an ELisp expression, so you
+  ;; FIXME: Make it a function instead of a Lisp expression, so you
   ;; can evaluate it with `funcall' rather than `eval'!
   ;; Also, in `font-lock-defaults' you can specify a function name for
   ;; the "KEYWORDS" part, so font-lock calls it to get the actual keywords!
@@ -281,7 +289,14 @@ ARGUMENTS to actually emit the message (if applicable)."
 	  (when tramp-debug-to-file
 	    (ignore-errors
 	      (write-region
-	       point (point-max) (tramp-get-debug-file-name vec) 'append))))))))
+	       point (point-max) (tramp-get-debug-file-name vec) 'append))))
+	(when (and (natnump tramp-debug-buffer-limit)
+		   (not (zerop tramp-debug-buffer-limit))
+		   (> (point-max) tramp-debug-buffer-limit))
+	  (setq-local tramp-debug-buffer-limit nil)
+	  (lwarn
+	   'tramp :warning
+	   "Tramp debug buffer %S exceeds the limit" (current-buffer)))))))
 
 ;;;###tramp-autoload
 (defun tramp-message (vec-or-proc level fmt-string &rest arguments)
@@ -454,7 +469,7 @@ an input event arrives.  The other arguments are passed to `tramp-error'."
 BODY is executed like wrapped by `with-demoted-errors'.  FORMAT
 is a format-string containing a %-sequence meaning to substitute
 the resulting error message."
-  (declare (indent 2) (debug (symbolp form body)))
+  (declare (indent 2) (debug (symbolp form &rest body)))
   (let ((err (make-symbol "err")))
     `(condition-case-unless-debug ,err
          (progn ,@body)
@@ -464,7 +479,7 @@ the resulting error message."
   "Show a warning.
 VEC-OR-PROC identifies the connection to use, remaining arguments passed
 to `tramp-message'."
-  (declare (tramp-suppress-trace t))
+  (declare (indent 1) (tramp-suppress-trace t))
   (let (signal-hook-function)
     (apply 'tramp-message vec-or-proc 2 fmt-string arguments)
     (apply 'lwarn 'tramp :warning fmt-string arguments)))

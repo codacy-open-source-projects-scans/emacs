@@ -1,6 +1,6 @@
 ### @configure_input@
 
-# Copyright (C) 2010-2024 Free Software Foundation, Inc.
+# Copyright (C) 2010-2025 Free Software Foundation, Inc.
 
 # This file is part of GNU Emacs.
 
@@ -203,7 +203,7 @@ EXCLUDE_TESTS =
 SLOW_TESTS = ${srcdir}/lisp/net/tramp-tests.el
 
 ELFILES := $(sort $(shell find ${srcdir} -name manual -prune -o \
-		-name data -prune -o \
+		-name data -prune -o -name infra -prune -o \
 		-name "*resources" -prune -o \
 		${maybe_exclude_module_tests} \
 		-name "*.el" ! -name ".*" -print))
@@ -258,9 +258,12 @@ SUBDIR_TARGETS =
 define subdir_template
   SUBDIR_TARGETS += check-$(subst /,-,$(1))
   .PHONY: check-$(subst /,-,$(1))
-  check-$(subst /,-,$(1)):
+  check-$(subst /,-,$(1)): \
+    $(patsubst %,check-%,$(subst /,-,$(wildcard $(1)/*-tests)))
 	@${MAKE} check LOGFILES="$(patsubst %.el,%.log, \
 		$(patsubst $(srcdir)/%,%,$(wildcard ${srcdir}/$(1)/*.el)))"
+  .PHONY: $(1)
+  $(1): check-$(subst /,-,$(1))
 endef
 
 $(foreach subdir, $(SUBDIRS), $(eval $(call subdir_template,$(subdir))))

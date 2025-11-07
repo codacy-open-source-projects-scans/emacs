@@ -1,6 +1,6 @@
 ;;; fns-tests.el --- tests for src/fns.c  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2014-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2025 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -38,7 +38,11 @@
         (should (= (random 1) 0))
         (should (>= (random 10) 0))
         (should (< (random 10) 10))
-        (should (equal (random "seed") (random "seed")))
+        ;; On OpenBSD random is non-deterministic.
+        (if (and (eq system-type 'berkeley-unix)
+                 (string-match-p "openbsd" system-configuration))
+            (should (not (equal (random "seed") (random "seed"))))
+          (should (equal (random "seed") (random "seed"))))
         ;; The probability of four calls being the same is low.
         ;; This makes sure that the value isn't constant.
         (should (not (= (random t) (random t) (random t) (random t))))
@@ -52,7 +56,8 @@
   (should (= (length '(1 2 3)) 3))
   (should (= (length '[1 2 3]) 3))
   (should (= (length "foo") 3))
-  (should-error (length t)))
+  (should-error (length t))
+  (should (= (length (make-char-table 'fns-tests)) (1+ (max-char)))))
 
 (ert-deftest fns-tests-safe-length ()
   (should (= (safe-length '(1 2 3)) 3)))
@@ -277,7 +282,7 @@
   (should (string-collate-equalp "xyzzy" "XYZZY" nil t))
 
   ;; Locale must be valid.
-  (should-error (string-collate-equalp "xyzzy" "xyzzy" "en_XY.UTF-8")))
+  (should-error (string-collate-equalp "xyzzy" "xyzzy" 'not-a-locale)))
 
 ;; There must be a check for valid codepoints.  (Check not implemented yet)
 ;  (should-error
@@ -345,7 +350,7 @@
          (counter 0)
          (my-counter (lambda ()
                        (if (< counter 500)
-                           (cl-incf counter)
+                           (incf counter)
                          (setq counter 0)
                          (garbage-collect))))
          (rand 1)
@@ -1133,6 +1138,216 @@
   (should (not (proper-list-p (make-bool-vector 0 nil))))
   (should (not (proper-list-p (make-symbol "a")))))
 
+(ert-deftest test-hash-table ()
+  (let ((h (make-hash-table))
+        (val "anything"))
+    (puthash 123 val h)
+    (should (eq (gethash 123 h) val)))
+  (let ((h (make-hash-table :test 'equal))
+        (val "anything"))
+    (puthash '("hello" 123) val h)
+    (should (eq (gethash '("hello" 123) h) val))))
+
+(ert-deftest test-hash-table-wrong-keywords ()
+  (should (make-hash-table :purecopy t))      ; obsolete and ignored
+  (should (make-hash-table :rehash-size 123)) ; obsolete and ignored
+  (should (make-hash-table :rehash-threshold 123)) ; obsolete and ignored
+  (should-error (make-hash-table :some-random-keyword 123)))
+
+(ert-deftest test-remhash ()
+  (let ((h (make-hash-table))
+        (val "anything"))
+    (puthash 'foo val h)
+    (remhash 'foo h)
+    (should-not (gethash 'foo h))))
+
+(ert-deftest test-clrhash ()
+  (let ((h (make-hash-table)))
+    (puthash 'foo1 'bar1 h)
+    (puthash 'foo2 'bar2 h)
+    (puthash 'foo3 'bar3 h)
+    (puthash 'foo4 'bar4 h)
+    (clrhash h)
+    (should-not (gethash 'foo h))))
+
+(ert-deftest test-hash-table-p ()
+  (let ((h (make-hash-table)))
+    (should (hash-table-p h)))
+  (should-not (hash-table-p 123))
+  (should-not (hash-table-p "foo"))
+  (should-not (hash-table-p [foo]))
+  (should-not (hash-table-p (list 'foo))))
+
+(ert-deftest test-hash-table-count ()
+  (let ((h (make-hash-table)))
+    (puthash 'foo1 'bar1 h)
+    (should (= (hash-table-count h) 1))
+    (puthash 'foo2 'bar2 h)
+    (should (= (hash-table-count h) 2))
+    (puthash 'foo3 'bar3 h)
+    (should (= (hash-table-count h) 3))
+    (puthash 'foo4 'bar4 h)
+    (should (= (hash-table-count h) 4))
+    (clrhash h)
+    (should (= (hash-table-count h) 0))))
+
+(ert-deftest test-maphash ()
+  (let ((h (make-hash-table))
+        (sum 0))
+    (puthash 'foo1 1 h)
+    (puthash 'foo2 22 h)
+    (puthash 'foo3 333 h)
+    (puthash 'foo4 4444 h)
+    (maphash (lambda (_key value) (incf sum value)) h)
+    (should (= sum 4800))))
+
+(ert-deftest test-copy-hash-table ()
+  (let* ((h1 (make-hash-table))
+         h2)
+    (puthash 'foo '(bar baz) h1)
+    (setq h2 (copy-hash-table h1))
+    (should-not (eq h1 h2))
+    (should (equal (gethash 'foo h2) '(bar baz)))))
+
+(ert-deftest ft-hash-table-weakness ()
+  (dolist (w '(nil key value key-or-value key-and-value t))
+    (let* ((h (make-hash-table :weakness w))
+           (w2 (hash-table-weakness h)))
+      (cond ((eq w t)
+             (should (eq w2 'key-and-value)))
+            (t
+             (should (eq w2 w)))))))
+
+
+;;; Weak hashtable tests
+
+(defun ft--init-rng () (random "weak-hashtable-tests"))
+(defun ft--nentries () 50)
+
+(defun ft--format-component (num key? dead?)
+  (format "%02d-%s-%s" num (if key? "key" "val") (if dead? "dead" "alive")))
+
+(defun ft--parse-component (string)
+  (or (string-match "^\\([0-9]+\\)-\\(key\\|val\\)-\\(dead\\|alive\\)$"
+                    string)
+      (error "Invalid argument: %S" string))
+  (vector (string-to-number (match-string 1 string))
+          (equal (match-string 2 string) "key")
+          (equal (match-string 3 string) "dead")))
+
+(defun ft--component-num (string) (aref (ft--parse-component string) 0))
+
+(defun ft--dead-component (string key?)
+  (ft--format-component (ft--component-num string) key? t))
+
+;; Create NENTRIES pairs of strings and put them into TABLE.  Randomly
+;; select a subset of the strings as "dead".  Return the list of pairs
+;; where the "dead" strings are replaced the with nil.
+(defun ft--populate-hashtable (table nentries)
+  (let ((pairs '()))
+    (dotimes (i nentries)
+      (let* ((r (random 4))
+             (key (cl-ecase r
+                    ((0 2) (ft--format-component i t nil))
+                    ((1 3) (ft--format-component i t t))))
+             (val (cl-ecase r
+                    ((0 1) (ft--format-component i nil nil))
+                    ((2 3) (ft--format-component i nil t)))))
+        (puthash key val table)
+        (cl-ecase r
+          (0 (push (cons key val) pairs))
+          (1 (push (cons nil val) pairs))
+          (2 (push (cons key nil) pairs))
+          (3 ))))
+    (nreverse pairs)))
+
+(defun ft--hash-table-entries (table)
+  (let ((entries '()))
+    (maphash (lambda (k v) (push (cons k v) entries))
+             table)
+    entries))
+
+(defun ft--check-entry (weakness key1 val1 key2 val2)
+  (cl-ecase weakness
+    (key
+     (should (eq key1 key2))
+     (cond (val1 (should (eq val1 val2)))
+           (t (should (equal (ft--dead-component key1 nil)
+                             val2)))))
+    (value
+     (should (eq val1 val2))
+     (cond (key1 (should (eq key1 key2)))
+           (t (should (equal (ft--dead-component val1 t)
+                             key2)))))
+    (key-and-value
+     (should (eq key1 key2))
+     (should (eq val1 val2)))
+    (key-or-value
+     (cond (key1 (should (eq key1 key2)))
+           (t (should (equal (ft--dead-component val1 t)
+                             key2))))
+     (cond (val1 (should (eq val1 val2)))
+           (t (should (equal (ft--dead-component key1 nil)
+                             val2)))))))
+
+(defun ft--check-entries (table pairs)
+  (let* ((w (hash-table-weakness table))
+         (expected (cl-ecase w
+                     (key (cl-remove nil pairs :key #'car))
+                     (value (cl-remove nil pairs :key #'cdr))
+                     (key-and-value
+                      (cl-remove-if (lambda (e)
+                                      (not (and (car e) (cdr e))))
+                                    pairs))
+                     (key-or-value
+                      (cl-remove-if (lambda (e)
+                                      (not (or (car e) (cdr e))))
+                                    pairs))))
+         (actual (sort (ft--hash-table-entries table)
+                       :key #'car :lessp #'string<)))
+    (cl-loop for (k1 . v1) in expected
+             for (k2 . v2) in actual
+             do (ft--check-entry w k1 v1 k2 v2))
+    (should (= (length expected) (length actual)))))
+
+(defun ft--gc () (garbage-collect))
+
+;; Test that weakly held objects are no longer in a hash table after a
+;; GC cycle.
+(defun ft--test-weak-removal (weakness)
+  ;; Use a separate thread to avoid stray references on the stack.
+  (unless (featurep 'threads)
+    (ert-skip '(not (featurep 'threads))))
+  (let* ((_ (ft--init-rng))
+         (table (make-hash-table :weakness weakness))
+         (f (lambda () (ft--populate-hashtable table (ft--nentries))))
+         (pairs (thread-join (make-thread f))))
+    (ft--gc)
+    (ft--check-entries table pairs)))
+
+(ert-deftest ft-weak-key-removal () (ft--test-weak-removal 'key))
+(ert-deftest ft-weak-value-removal () (ft--test-weak-removal 'value))
+(ert-deftest ft-weak-and-removal () (ft--test-weak-removal 'key-and-value))
+(ert-deftest ft-weak-or-removal () (ft--test-weak-removal 'key-or-value))
+
+(defun ft--test-puthash (weakness)
+  (let ((h (make-hash-table :weakness weakness))
+        (a (string ?a))
+        (b (string ?b))
+        (c (string ?c)))
+    (puthash a a h)
+    (should (eq (gethash a h) a))
+    (puthash a b h)
+    (should (eq (gethash a h) b))
+    (puthash a c h)
+    (should (eq (gethash a h) c))))
+
+(ert-deftest ft-puthash-weak ()
+  (dolist (w '(nil key value key-and-value key-or-value))
+    (ft--test-puthash w)))
+
+
+
 (ert-deftest test-hash-function-that-mutates-hash-table ()
   (define-hash-table-test 'badeq 'eq 'bad-hash)
   (let ((h (make-hash-table :test 'badeq :size 1 :rehash-size 1)))
@@ -1816,5 +2031,9 @@
                       (should-not (value< b a))))
                     ;; Undo the flip.
                     (aset b i val)))))))))))
+
+;; Local Variables:
+;; read-symbol-shorthands: (("ft-" . "fns-tests-"))
+;; End:
 
 ;;; fns-tests.el ends here

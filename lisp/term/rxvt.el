@@ -1,6 +1,6 @@
 ;;; rxvt.el --- define function key sequences and standard colors for rxvt  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2002-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2025 Free Software Foundation, Inc.
 
 ;; Author: Eli Zaretskii
 ;; Keywords: terminals
@@ -189,6 +189,9 @@
 
   (when rxvt-set-window-title
     (xterm--init-frame-title))
+
+  ;; Do not use TAB+BS optimization, as that might produce buggy display.
+  (setq tty-cursor-movement-use-TAB-BS nil)
 
   (run-hooks 'terminal-init-rxvt-hook))
 

@@ -1,6 +1,6 @@
 ;;; octave.el --- editing octave source files under emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2025 Free Software Foundation, Inc.
 
 ;; Author: Kurt Hornik <Kurt.Hornik@wu-wien.ac.at>
 ;;	   John Eaton <jwe@octave.org>
@@ -1666,12 +1666,10 @@ code line."
   'follow-link t
   'action (lambda (b) (octave-help (button-label b))))
 
-(defvar octave-help-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\M-."  'octave-find-definition)
-    (define-key map "\C-hd" 'octave-help)
-    (define-key map "\C-ha" 'octave-lookfor)
-    map))
+(defvar-keymap octave-help-mode-map
+  "M-."   #'octave-find-definition
+  "C-h d" #'octave-help
+  "C-h a" #'octave-lookfor)
 
 (define-derived-mode octave-help-mode help-mode "OctHelp"
   "Major mode for displaying Octave documentation."

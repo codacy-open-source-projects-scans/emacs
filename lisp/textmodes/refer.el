@@ -1,6 +1,6 @@
 ;;; refer.el --- look up references in bibliography files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1992, 1996, 2001-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1992, 1996, 2001-2025 Free Software Foundation, Inc.
 
 ;; Author: Ashwin Ram <ashwin@cc.gatech.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -46,7 +46,7 @@
 ;;	refer-yank-key to insert it at point in the current buffer
 ;;	(typically as the argument of a \cite{} command).
 ;;
-;;	I use (define-key tex-mode-map    "\C-c\C-y"  'refer-yank-key)
+;;	I use (keymap-set tex-mode-map    "C-c C-y"  'refer-yank-key)
 ;;	to bind this often-used function to a key in (la)tex-mode.
 ;;
 ;;      If the list of bibliography files changes, reinitialize the variable

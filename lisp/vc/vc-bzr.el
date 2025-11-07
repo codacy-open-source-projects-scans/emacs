@@ -1,6 +1,6 @@
 ;;; vc-bzr.el --- VC backend for the bzr revision control system  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2025 Free Software Foundation, Inc.
 
 ;; Author: Dave Love <fx@gnu.org>
 ;; 	   Riccardo Murri <riccardo.murri@gmail.com>
@@ -109,6 +109,16 @@ The option \"--no-classify\" should be present if your bzr supports it."
                  (string :tag "Argument String")
                  (repeat :tag "Argument List" :value ("") string))
   :version "24.1")
+
+(defcustom vc-bzr-resolve-conflicts 'default
+  "Whether to mark conflicted file as resolved upon saving.
+If this is t and there are no more conflict markers in the file,
+VC will mark the conflicts in the saved file as resolved.
+A value of `default' means to use the value of `vc-resolve-conflicts'."
+  :type '(choice (const :tag "Don't resolve" nil)
+                 (const :tag "Resolve" t)
+                 (const :tag "Use vc-resolve-conflicts" default))
+  :version "31.1")
 
 ;; since v0.9, bzr supports removing the progress indicators
 ;; by setting environment variable BZR_PROGRESS_BAR to "none".
@@ -531,7 +541,10 @@ in the branch repository (or whose status not be determined)."
     ;; but the one in `bzr pull' isn't, so it would be good to provide an
     ;; elisp function to remerge from the .BASE/OTHER/THIS files.
     (smerge-start-session)
-    (add-hook 'after-save-hook #'vc-bzr-resolve-when-done nil t)
+    (when (or (eq vc-bzr-resolve-conflicts t)
+              (and (eq vc-bzr-resolve-conflicts 'default)
+                   vc-resolve-conflicts))
+      (add-hook 'after-save-hook #'vc-bzr-resolve-when-done nil t))
     (vc-message-unresolved-conflicts buffer-file-name)))
 
 (defun vc-bzr-clone (remote directory rev)
@@ -803,13 +816,27 @@ If LIMIT is non-nil, show no more than this many entries."
       (indent-region (match-end 0) (point-max) 2)
       (buffer-substring (match-end 0) (point-max)))))
 
-(defun vc-bzr-log-incoming (buffer remote-location)
+;; FIXME: Implement `vc-bzr-mergebase' and then delete this.
+(defun vc-bzr-log-incoming (buffer upstream-location)
   (apply #'vc-bzr-command "missing" buffer 'async nil
-	 (list "--theirs-only" (unless (string= remote-location "") remote-location))))
+	 (list "--theirs-only" (and (not (string-empty-p upstream-location))
+                                    upstream-location))))
 
-(defun vc-bzr-log-outgoing (buffer remote-location)
+(defun vc-bzr-incoming-revision (&optional upstream-location _refresh)
+  (with-temp-buffer
+    (vc-bzr-command "missing" t 1 nil
+                    "--log-format=long" "--show-ids"
+                    "--theirs-only" "-r-1.."
+                    upstream-location)
+    (goto-char (point-min))
+    (and (re-search-forward "^revision-id: " nil t)
+         (buffer-substring (point) (pos-eol)))))
+
+;; FIXME: Implement `vc-bzr-mergebase' and then delete this.
+(defun vc-bzr-log-outgoing (buffer upstream-location)
   (apply #'vc-bzr-command "missing" buffer 'async nil
-	 (list "--mine-only" (unless (string= remote-location "") remote-location))))
+	 (list "--mine-only" (and (not (string-empty-p upstream-location))
+                                  upstream-location))))
 
 (defun vc-bzr-show-log-entry (revision)
   "Find entry for patch name REVISION in bzr change log buffer."

@@ -1,6 +1,6 @@
 ;;; debug-early.el --- Dump a Lisp backtrace without frills  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
 
 ;; Author: Alan Mackenzie <acm@muc.de>
 ;; Maintainer: emacs-devel@gnu.org
@@ -35,6 +35,8 @@
 
 ;; For bootstrap reasons, we cannot use any macros here since they're
 ;; not defined yet.
+
+(defvar debugger--last-error nil)
 
 (defalias 'debug-early-backtrace
   #'(lambda (&optional base)
@@ -76,15 +78,20 @@ of the build process."
 	                      (setq args (cdr args)))
 	               (princ " ")))
 	         (princ ")\n"))))
-	 base))))
+	 base))
+      (message "debug-early-backtrace...done")))
 
 (defalias 'debug--early
   #'(lambda (error base)
-  (princ "\nError: ")
-  (prin1 (car error))	; The error symbol.
-  (princ " ")
-  (prin1 (cdr error))	; The error data.
-  (debug-early-backtrace base)))
+      (if (eq error debugger--last-error) nil
+        (setq debugger--last-error nil)
+        (princ "\nError: ")
+        (prin1 (car error))             ; The error symbol.
+        (princ " ")
+        (prin1 (cdr error))             ; The error data.
+        (prog1 ;; Purposefully not `unwind-protect'!
+            (debug-early-backtrace base)
+          (setq debugger--last-error error)))))
 
 (defalias 'debug-early                  ;Called from C.
   #'(lambda (&rest args)

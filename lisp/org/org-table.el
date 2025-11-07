@@ -1,6 +1,6 @@
 ;;; org-table.el --- The Table Editor for Org        -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2004-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2025 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <carsten.dominik@gmail.com>
 ;; Keywords: outlines, hypermedia, calendar, text
@@ -2539,8 +2539,7 @@ location of point."
 	;; replace fields with duration values if relevant
 	(if duration
 	    (setq fields
-		  (mapcar (lambda (x) (org-table-time-string-to-seconds x))
-			  fields)))
+                  (mapcar #'org-table-time-string-to-seconds fields)))
 	(if (eq numbers t)
 	    (setq fields (mapcar
 			  (lambda (x)

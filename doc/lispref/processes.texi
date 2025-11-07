@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2024 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2025 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Processes
@@ -113,6 +113,11 @@ want the name to be tried exactly as specified.  The default value is
 system-dependent.
 @end defopt
 
+@defun exec-suffixes
+This function returns the connection-local value of variable
+@code{exec-suffixes}.
+@end defun
+
   @strong{Please note:} The argument @var{program} contains only the
 name of the program file; it may not contain any command-line
 arguments.  You must use a separate argument, @var{args}, to provide
@@ -183,10 +188,11 @@ This function is an extension of the variable @code{exec-path}.  If
 returns a list of directories used for searching programs on the
 respective remote host.  In case of a local @code{default-directory},
 the function returns just the value of the variable @code{exec-path}.
+If you use @code{exec-suffixes} together with this function, you must
+also use the function @code{exec-suffixes} instead of the variable.
 @end defun
 
 @cindex programs distributed with Emacs, starting
-@vindex ctags-program-name
 @vindex etags-program-name
 @vindex hexl-program-name
 @vindex emacsclient-program-name
@@ -197,11 +203,11 @@ the function returns just the value of the variable @code{exec-path}.
 must take into account that the program may have been renamed in order
 to comply with executable naming restrictions present on the system.
 
-  Instead of starting @command{ctags}, for example, you should specify
-the value of @code{ctags-program-name} instead.  Likewise, instead of
+  Instead of starting @command{emacsclient}, for example, you should specify
+the value of @code{emacsclient-program-name} instead.  Likewise, instead of
 starting @command{movemail}, you must start
 @code{movemail-program-name}, and the same goes for @command{etags},
-@command{hexl}, @command{emacsclient}, @code{rcs2log}, and
+@command{hexl}, @code{rcs2log}, and
 @command{ebrowse}.
 
 @node Shell Arguments
@@ -836,7 +842,8 @@ Use the string @var{name} as the process name.  As with
 @code{make-process}, it is modified if necessary to make it unique.
 
 @item :buffer @var{buffer}
-Use @var{buffer} as the process buffer.
+Use @var{buffer} as the process buffer.  If the value is @code{nil},
+the subprocess is not associated with any buffer.
 
 @item :coding @var{coding}
 If @var{coding} is a symbol, it specifies the coding system to be
@@ -1983,7 +1990,8 @@ until output arrives from a process.
 
 @defun accept-process-output &optional process seconds millisec just-this-one
 This function allows Emacs to read pending output from processes.  The
-output is given to their filter functions.  If @var{process} is
+output is given to the filter functions set up by the processes
+(@pxref{Filter Functions}).  If @var{process} is
 non-@code{nil} then this function does not return until some output
 has been received from @var{process} or @var{process} has closed the
 connection.
@@ -2014,6 +2022,15 @@ got output from @var{process}, or from any process if @var{process} is
 corresponding connection contains buffered data.  The function returns
 @code{nil} if the timeout expired or the connection was closed before output
 arrived.
+
+Note that this function is not guaranteed to return as soon as some
+output is available from a subprocess, because the main purpose of the
+function is to let Emacs read output from subprocesses, not to wait as
+little as possible.  In particular, if @var{process} is @code{nil}, the
+function should not be expected to return before the specified timeout
+expires.  Thus, if a Lisp program needs to minimize the wait for the
+subprocess output, it should call this function with a non-@code{nil}
+value of a specific @var{process}.
 @end defun
 
 If a connection from a process contains buffered data,
@@ -3166,7 +3183,7 @@ machine you are using.  The value is an alist whose elements have the
 form @code{(@var{ifname} . @var{address})}.  @var{ifname} is a string
 naming the interface, @var{address} has the same form as the
 @var{local-address} and @var{remote-address} arguments to
-@code{make-network-process}, i.e. a vector of integers.  By default
+@code{make-network-process}, i.e.@: a vector of integers.  By default
 both IPv4 and IPv6 addresses are returned if possible.
 
 Optional argument @var{full} non-@code{nil} means to instead return a

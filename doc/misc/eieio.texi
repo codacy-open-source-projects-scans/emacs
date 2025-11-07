@@ -12,7 +12,7 @@
 @copying
 This manual documents EIEIO, an object framework for Emacs Lisp.
 
-Copyright @copyright{} 2007--2024 Free Software Foundation, Inc.
+Copyright @copyright{} 2007--2025 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -881,7 +881,7 @@ help with this a plethora of predicates have been created.
 @anchor{find-class}
 Return the class that @var{symbol} represents.
 If there is no class, @code{nil} is returned if @var{errorp} is @code{nil}.
-If @var{errorp} is non-@code{nil}, @code{wrong-argument-type} is signaled.
+If @var{errorp} is non-@code{nil}, @code{wrong-type-argument} is signaled.
 @end defun
 
 @defun class-p class
@@ -1653,7 +1653,7 @@ This should create an unqualified method to access a slot, but
 instead pre-builds a method that gets the slot's value.
 
 @item :type
-Specifier uses the @code{typep} function from the @file{cl}
+Specifier uses the @code{cl-typep} function from the @file{cl-lib}
 package.  @xref{Type Predicates,,,cl,Common Lisp Extensions}.
 It therefore has the same issues as that package.  Extensions include
 the ability to provide object names.
@@ -1702,7 +1702,7 @@ Some important compatibility features that would be good to add are:
 @item
 Support for metaclasses.
 @item
-Improve integration with the @file{cl} package.
+Improve integration with the @file{cl-lib} package.
 @end enumerate
 
 There are also improvements to be made to allow @eieio{} to operate

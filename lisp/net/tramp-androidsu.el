@@ -1,6 +1,6 @@
 ;;; tramp-androidsu.el --- Tramp method for Android superuser shells  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2024 Free Software Foundation, Inc.
+;; Copyright (C) 2024-2025 Free Software Foundation, Inc.
 
 ;; Author: Po Lu
 ;; Keywords: comm, processes
@@ -131,19 +131,18 @@ multibyte mode and waits for the shell prompt to appear."
                      ;; The executable loader cannot execute setuid
                      ;; binaries, such as su.
                      (android-use-exec-loader nil)
-		     (p (start-process (tramp-get-connection-name vec)
-			               (tramp-get-connection-buffer vec)
-                                       ;; Disregard
-                                       ;; `tramp-encoding-shell', as
-                                       ;; there's no guarantee that it's
-                                       ;; possible to execute it with
-                                       ;; `android-use-exec-loader' off.
-			               tramp-androidsu-local-shell-name "-i"))
+		     (p (tramp-start-process
+			 vec (tramp-get-connection-name vec)
+			 (tramp-get-connection-buffer vec)
+			 ;; Disregard `tramp-encoding-shell', as
+			 ;; there's no guarantee that it's possible to
+			 ;; execute it with `android-use-exec-loader'
+			 ;; off.
+			 tramp-androidsu-local-shell-name "-i"))
 		     (user (tramp-file-name-user vec))
                      su-binary path command)
-                ;; Set sentinel.  Initialize variables.
+                ;; Set sentinel.
 	        (set-process-sentinel p #'tramp-process-sentinel)
-	        (tramp-post-process-creation p vec)
                 ;; Replace `login-args' place holders.  `PATH' must be
                 ;; set to `tramp-androidsu-remote-path', as some `su'
                 ;; implementations propagate their callers' environments
@@ -312,9 +311,7 @@ FUNCTION."
 		  (when
 		      (and
 		       (string-search "=" elt)
-		       (not
-			(member
-			 elt (default-toplevel-value 'process-environment))))
+		       (not (tramp-local-environment-variable-p elt)))
 		    (setq env (cons elt env)))))
 	   ;; Add remote path if exists.
 	   (env (let ((remote-path (string-join (tramp-get-remote-path v) ":")))
@@ -375,7 +372,6 @@ FUNCTION."
       ;; so we reset it.
       (set-process-query-on-exit-flag p (null noquery))
       (process-put p 'remote-command orig-command)
-      (tramp-set-connection-property p "remote-command" orig-command)
       (when (bufferp stderr)
 	(tramp-taint-remote-process-buffer stderr))
       p)))

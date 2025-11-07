@@ -1,6 +1,6 @@
 /* sig2str.c -- convert between signal names and numbers
 
-   Copyright (C) 2002, 2004, 2006, 2009-2024 Free Software Foundation, Inc.
+   Copyright (C) 2002, 2004, 2006, 2009-2025 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -288,7 +288,7 @@ str2signum (char const *signame)
     {
       unsigned int i;
       for (i = 0; i < NUMNAME_ENTRIES; i++)
-        if (strcmp (numname_table[i].name, signame) == 0)
+        if (streq (numname_table[i].name, signame))
           return numname_table[i].num;
 
       {

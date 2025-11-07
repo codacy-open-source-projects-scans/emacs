@@ -1,6 +1,6 @@
 ;;; tramp-adb.el --- Functions for calling Android Debug Bridge from Tramp  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2011-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2025 Free Software Foundation, Inc.
 
 ;; Author: Jürgen Hötzel <juergen@archlinux.org>
 ;; Maintainer: Michael Albinus <michael.albinus@gmx.de>
@@ -484,11 +484,11 @@ Emacs dired can't find files."
     (with-tramp-file-property v localname "file-executable-p"
       ;; Examine `file-attributes' cache to see if request can be
       ;; satisfied without remote operation.
-      (if (tramp-use-file-attributes v)
-	  (or (tramp-check-cached-permissions v ?x)
-	      (tramp-check-cached-permissions v ?s))
-	(tramp-adb-send-command-and-check
-	 v (format "test -x %s" (tramp-shell-quote-argument localname)))))))
+      (or (tramp-check-cached-permissions v ?x)
+	  (tramp-check-cached-permissions v ?s)
+	  (tramp-check-cached-permissions v ?t)
+	  (tramp-adb-send-command-and-check
+	   v (format "test -x %s" (tramp-shell-quote-argument localname)))))))
 
 (defun tramp-adb-handle-file-exists-p (filename)
   "Like `file-exists-p' for Tramp files."
@@ -502,10 +502,9 @@ Emacs dired can't find files."
     (with-tramp-file-property v localname "file-readable-p"
       ;; Examine `file-attributes' cache to see if request can be
       ;; satisfied without remote operation.
-      (if (tramp-use-file-attributes v)
-	  (tramp-handle-file-readable-p filename)
-	(tramp-adb-send-command-and-check
-	 v (format "test -r %s" (tramp-shell-quote-argument localname)))))))
+      (or (tramp-handle-file-readable-p filename)
+	  (tramp-adb-send-command-and-check
+	   v (format "test -r %s" (tramp-shell-quote-argument localname)))))))
 
 (defun tramp-adb-handle-file-writable-p (filename)
   "Like `file-writable-p' for Tramp files."
@@ -574,9 +573,9 @@ Emacs dired can't find files."
 		  "touch -t %s %s %s")
 	  (format-time-string "%Y-%m-%dT%H:%M:%S.%NZ" time t)
 	  nofollow quoted-name (tramp-get-remote-null-device v)
-	  (format-time-string "%Y-%m-%dT%H:%M:%S" time t)
+	  (format-time-string "%Y-%m-%dT%H:%M:%S" time)
 	  nofollow quoted-name (tramp-get-remote-null-device v)
-	  (format-time-string "%Y%m%d%H%M.%S" time t)
+	  (format-time-string "%Y%m%d%H%M.%S" time)
 	  nofollow quoted-name)))))
 
 (defun tramp-adb-handle-copy-file
@@ -846,8 +845,6 @@ will be used."
 		      (when filter
 			(set-process-filter p filter))
 		      (process-put p 'remote-command orig-command)
-		      (tramp-set-connection-property
-		       p "remote-command" orig-command)
 		      ;; Set query flag and process marker for this
 		      ;; process.  We ignore errors, because the
 		      ;; process could have finished already.
@@ -999,7 +996,7 @@ error and non-nil on success."
       ;; <https://android.stackexchange.com/questions/226638/how-to-use-multibyte-file-names-in-adb-shell/232379#232379>
       ;; mksh uses UTF-8 internally, but is currently limited to the
       ;; BMP (basic multilingua plane), which means U+0000 to
-      ;; U+FFFD. If you want to use SMP codepoints (U-00010000 to
+      ;; U+FFFD.  If you want to use SMP codepoints (U-00010000 to
       ;; U-0010FFFD) on the input line, you currently have to disable
       ;; the UTF-8 mode (sorry).
       (tramp-adb-execute-adb-command vec "shell" command)
@@ -1120,17 +1117,14 @@ connection if a previous connection has died for some reason."
 		   (process-connection-type tramp-process-connection-type)
 		   (args (tramp-expand-args
 			  vec 'tramp-login-args nil ?d (or device "")))
-		   (p (let ((default-directory
-			     tramp-compat-temporary-file-directory))
-			(apply
-			 #'start-process (tramp-get-connection-name vec) buf
-			 tramp-adb-program args)))
+		   (p (apply
+		       #'tramp-start-process vec (tramp-get-connection-name vec)
+		       buf tramp-adb-program args))
 		   (prompt (md5 (concat (prin1-to-string process-environment)
 					(current-time-string)))))
 
-	      ;; Set sentinel.  Initialize variables.
+	      ;; Set sentinel.
 	      (set-process-sentinel p #'tramp-process-sentinel)
-	      (tramp-post-process-creation p vec)
 
 	      ;; Wait for initial prompt.  On some devices, it needs
 	      ;; an initial RET, in order to get it.

@@ -1,6 +1,6 @@
 ;;; cconv.el --- Closure conversion for statically scoped Emacs Lisp. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2025 Free Software Foundation, Inc.
 
 ;; Author: Igor Kuzmin <kzuminig@iro.umontreal.ca>
 ;; Maintainer: emacs-devel@gnu.org
@@ -311,11 +311,11 @@ ENV is a list where each entry takes the shape either:
 EXTEND is a list of variables which might need to be accessed even from places
 where they are shadowed, because some part of ENV causes them to be used at
 places where they originally did not directly appear."
-  (cl-assert (not (delq nil (mapcar (lambda (mapping)
-                                      (if (eq (cadr mapping) #'apply-partially)
-                                          (cconv--set-diff (cdr (cddr mapping))
-                                                           extend)))
-                                    env))))
+  (cl-assert (not (any (lambda (mapping)
+                         (and (eq (cadr mapping) #'apply-partially)
+                              (cconv--set-diff (cdr (cddr mapping))
+                                               extend)))
+                       env)))
 
   ;; What's the difference between fvrs and envs?
   ;; Suppose that we have the code
@@ -904,7 +904,7 @@ lexically and dynamically bound symbols actually used by FORM."
 
 (defun cconv-make-interpreted-closure (args body env docstring iform)
   "Make a closure for the interpreter.
-This is intended to be called at runtime by the ELisp interpreter (when
+This is intended to be called at runtime by the Lisp interpreter (when
 the code has not been compiled).
 FUN is the closure's source code, must be a lambda form.
 ENV is the runtime representation of the lexical environment,
@@ -950,7 +950,7 @@ for the lexical bindings."
              (newenv (nconc (mapcar (lambda (fv) (assq fv env)) (car fvs))
                             (cdr fvs))))
         ;; Never return a nil env, since nil means to use the dynbind
-        ;; dialect of ELisp.
+        ;; dialect of Elisp.
         (make-interpreted-closure args expanded-fun-body (or newenv '(t))
                                   docstring iform)))))
 

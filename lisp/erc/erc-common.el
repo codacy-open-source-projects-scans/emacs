@@ -1,6 +1,6 @@
 ;;; erc-common.el --- Macros and types for ERC  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2025 Free Software Foundation, Inc.
 ;;
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 ;; Keywords: comm, IRC, chat, client, internet
@@ -100,7 +100,7 @@ ERC only refolds `string', never `substxt'."))
                                 :named)
   "Object containing channel-specific data for a single user."
   ;; voice halfop op admin owner
-  (status 0 :type integer)
+  (status 0 :type natnum)
   ;; Last message time (in the form of the return value of
   ;; (current-time)
   ;;
