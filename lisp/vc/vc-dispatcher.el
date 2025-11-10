@@ -210,38 +210,7 @@ Another is that undo information is not kept."
           (inhibit-read-only t))
       (erase-buffer))))
 
-(defvar vc-sentinel-movepoint)          ;Dynamically scoped.
-
-(defun vc--process-sentinel (p code &optional success)
-  (let ((buf (process-buffer p)))
-    ;; Impatient users sometime kill "slow" buffers; check liveness
-    ;; to avoid "error in process sentinel: Selecting deleted buffer".
-    (when (buffer-live-p buf)
-      (with-current-buffer buf
-        (setq mode-line-process
-              (let ((status (process-status p)))
-                ;; Leave mode-line uncluttered, normally.
-                (unless (eq 'exit status)
-                  (format " (%s)" status))))
-        (let (vc-sentinel-movepoint
-              (m (process-mark p)))
-          ;; Normally, we want async code such as sentinels to not move point.
-          (save-excursion
-            (goto-char m)
-            ;; Each sentinel may move point and the next one should be run
-            ;; at that new point.  We could get the same result by having
-            ;; each sentinel read&set process-mark, but since `cmd' needs
-            ;; to work both for async and sync processes, this would be
-            ;; difficult to achieve.
-            (vc-exec-after code success)
-            (move-marker m (point)))
-          ;; But sometimes the sentinels really want to move point.
-          (when vc-sentinel-movepoint
-	    (let ((win (get-buffer-window (current-buffer) 0)))
-	      (if (not win)
-		  (goto-char vc-sentinel-movepoint)
-		(with-selected-window win
-		  (goto-char vc-sentinel-movepoint))))))))))
+(defvar vc-sentinel-movepoint)
 
 (defun vc-set-mode-line-busy-indicator ()
   (setq mode-line-process
@@ -253,6 +222,7 @@ Another is that undo information is not kept."
 (defun vc-exec-after (code &optional success proc)
   "Execute CODE when PROC, or the current buffer's process, is done.
 CODE should be a function of no arguments.
+CODE a bare form to pass to `eval' is also supported for compatibility.
 
 The optional PROC argument specifies the process Emacs should wait for
 before executing CODE.  It defaults to the current buffer's process.
@@ -261,7 +231,48 @@ CODE.  Otherwise, add CODE to the process's sentinel.
 
 If SUCCESS, it should be a process object.
 Only run CODE if the SUCCESS process has a zero exit code."
-  (let ((proc (or proc (get-buffer-process (current-buffer)))))
+  (unless proc (setq proc (get-buffer-process (current-buffer))))
+  (letrec ((eval-code
+            (lambda ()
+              (when (or (not success)
+                        (zerop (process-exit-status success)))
+                (if (functionp code) (funcall code) (eval code t)))))
+           (buf (and proc (process-buffer proc)))
+           (fun
+            (lambda (proc _msg)
+              ;; In the unlikely event of `set-buffer-process'.
+              (setq buf (process-buffer proc))
+              (cond
+               ;; Impatient users sometime kill "slow" buffers; check
+               ;; liveness to avoid "error in process sentinel:
+               ;; Selecting deleted buffer".
+               ((not (buffer-live-p buf))
+                (remove-function (process-sentinel proc) fun))
+               ((eq (process-status proc) 'exit)
+                (with-current-buffer buf
+                  (setq mode-line-process nil)
+                  (let (vc-sentinel-movepoint
+                        (m (process-mark proc)))
+                    ;; Normally, we want async code such as sentinels to
+                    ;; not move point.
+                    (save-excursion
+                      (goto-char m)
+                      ;; Each sentinel may move point and the next one
+                      ;; should be run from that new position.
+                      ;; Handling this up here, instead of requiring
+                      ;; CODE to handle it, means CODE can be written
+                      ;; for both sync and async processes.
+                      (funcall eval-code)
+                      (move-marker m (point)))
+                    ;; But sometimes the sentinels really want to move point.
+                    (when vc-sentinel-movepoint
+                      (if-let* ((win (get-buffer-window (current-buffer) 0)))
+                          (with-selected-window win
+		            (goto-char vc-sentinel-movepoint))
+                        (goto-char vc-sentinel-movepoint))))))
+               ((not (eq (process-status proc) 'run))
+                (remove-function (process-sentinel proc) fun)
+                (error "Unexpected process state"))))))
     (cond
      ;; If there's no background process, just execute the code.
      ;; We used to explicitly call delete-process on exited processes,
@@ -269,21 +280,16 @@ Only run CODE if the SUCCESS process has a zero exit code."
      ;; lost.  Terminated processes get deleted automatically
      ;; anyway. -- cyd
      ((or (null proc) (eq (process-status proc) 'exit))
-      ;; Make sure we've read the process's output before going further.
-      (when proc (accept-process-output proc))
-      (when (or (not success)
-                (zerop (process-exit-status success)))
-        (if (functionp code) (funcall code) (eval code t))))
-     ;; If a process is running, add CODE to the sentinel
+      (when proc
+        ;; Nonblocking call in case we are ourselves called from a
+        ;; process sentinel (GNU ELPA's diff-hl does this).
+        (accept-process-output proc 0))
+      (funcall eval-code))
      ((eq (process-status proc) 'run)
-      (let ((buf (process-buffer proc)))
-        (when (buffer-live-p buf)
-          (with-current-buffer buf
-            (vc-set-mode-line-busy-indicator))))
-      (letrec ((fun (lambda (p _msg)
-                      (remove-function (process-sentinel p) fun)
-                      (vc--process-sentinel p code success))))
-        (add-function :after (process-sentinel proc) fun)))
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (vc-set-mode-line-busy-indicator)))
+      (add-function :after (process-sentinel proc) fun))
      (t (error "Unexpected process state"))))
   nil)
 
@@ -388,105 +394,101 @@ that is inserted into the command line before the filename.
 
 Return the return value of the slave command in the synchronous
 case, and the process object in the asynchronous case."
-  (let (;; Keep entire commands in *Messages* but avoid resizing the
-	;; echo area.  Messages in this function are formatted in
-	;; a such way that the important parts are at the beginning,
-	;; due to potential truncation of long messages.
-	(message-truncate-lines t)
-        (vc-inhibit-message
-	 (or (eq vc-command-messages 'log)
-	     (eq (selected-window) (active-minibuffer-window)))))
+  (pcase-let (;; Keep entire commands in *Messages* but avoid resizing the
+              ;; echo area.  Messages in this function are formatted in
+              ;; a such way that the important parts are at the beginning,
+              ;; due to potential truncation of long messages.
+              (message-truncate-lines t)
+              (vc-inhibit-message
+               (or (eq vc-command-messages 'log)
+                   (eq (selected-window) (active-minibuffer-window))))
+              (`(,command ,file-or-list ,flags)
+               (funcall vc-filter-command-function
+                        command file-or-list flags)))
     (save-current-buffer
       (unless (or (eq buffer t)
-		  (and (stringp buffer)
-		       (string= (buffer-name) buffer))
-		  (eq buffer (current-buffer)))
+                  (eq (current-buffer) (get-buffer buffer)))
         (vc-setup-buffer buffer))
-      (cl-destructuring-bind (command file-or-list flags)
-          (funcall vc-filter-command-function command file-or-list flags)
-        (when vc-tor
-          (push command flags)
-          (setq command "torsocks"))
-        (let* (;; FIXME: file-relative-name can return a bogus result
-               ;; because it doesn't look at the actual file-system to
-               ;; see if symlinks come into play.
-               (files
-	        (mapcar (lambda (f)
-                          (file-relative-name (expand-file-name f)))
-		        (if (listp file-or-list)
-                            file-or-list
-                          (list file-or-list))))
-	       (full-command
-	        (concat (if (string= (substring command -1) "\n")
-		            (substring command 0 -1)
-		          command)
-		        " " (vc-delistify flags)
-		        (and files (concat " " (vc-delistify files)))))
-               (squeezed (remq nil flags))
-	       (inhibit-read-only t)
-	       (status 0))
-          ;; If there's some previous async process still running,
-          ;; just kill it.
-          (when files
-	    (setq squeezed (nconc squeezed files)))
-	  (let (;; Since some functions need to parse the output
-	        ;; from external commands, set LC_MESSAGES to C.
-	        (process-environment
-                 (cons "LC_MESSAGES=C" process-environment))
-	        (w32-quote-process-args t))
-	    (if (eq okstatus 'async)
-	        ;; Run asynchronously.
-	        (let ((proc
-		       (let ((process-connection-type nil))
-		         (apply #'start-file-process command
-                                (current-buffer) command squeezed))))
-		  (when vc-command-messages
-		    (let ((inhibit-message vc-inhibit-message))
-		      (message "Running in background: %s"
-                               full-command)))
-                  ;; Get rid of the default message insertion, in case
-                  ;; we don't set a sentinel explicitly.
-		  (set-process-sentinel proc #'ignore)
-		  (set-process-filter proc #'vc-process-filter)
-		  (setq status proc)
-		  (when vc-command-messages
-		    (vc-run-delayed
-		      (let ((message-truncate-lines t)
-			    (inhibit-message vc-inhibit-message))
-		        (message "Done in background: %s"
-                                 full-command)))))
-	      ;; Run synchronously
-	      (when vc-command-messages
-	        (let ((inhibit-message vc-inhibit-message))
-		  (message "Running in foreground: %s" full-command)))
-	      (let ((buffer-undo-list t))
-	        (setq status (apply #'process-file
-                                    command nil t nil squeezed)))
-	      (when (and (not (eq t okstatus))
-		         (or (not (integerp status))
-			     (and okstatus (< okstatus status))))
-                (unless (eq ?\s (aref (buffer-name (current-buffer)) 0))
-                  (pop-to-buffer (current-buffer))
-                  (goto-char (point-min))
-                  (shrink-window-if-larger-than-buffer))
-                (when-let* (noninteractive
-                            (out (string-trim (buffer-string)))
-                            (_ (not (string-empty-p out))))
-                  (with-current-buffer buffer
-                    (message "%s" out)))
-	        (error "Failed (%s): %s"
-		       (if (integerp status)
-                           (format "status %d" status)
-                         status)
-		       full-command))
-	      (when vc-command-messages
-	        (let ((inhibit-message vc-inhibit-message))
-		  (message "Done (status=%d): %s"
-                           status full-command)))))
-	  (vc-run-delayed
-	    (run-hook-with-args 'vc-post-command-functions
-			        command file-or-list flags))
-	  status)))))
+      (when vc-tor
+        (push command flags)
+        (setq command "torsocks"))
+      (let* (;; FIXME: file-relative-name can return a bogus result
+             ;; because it doesn't look at the actual file-system to
+             ;; see if symlinks come into play.
+             (files
+              (mapcar (lambda (f)
+                        (file-relative-name (expand-file-name f)))
+                      (ensure-list file-or-list)))
+             (full-command
+              (concat (if (equal (substring command -1) "\n")
+                          (substring command 0 -1)
+                        command)
+                      " " (vc-delistify flags)
+                      (and files (concat " " (vc-delistify files)))))
+             (squeezed (remq nil flags))
+             (inhibit-read-only t)
+             (status 0))
+        ;; If there's some previous async process still running,
+        ;; just kill it.
+        (when files
+          (setq squeezed (nconc squeezed files)))
+        (let (;; Since some functions need to parse the output
+              ;; from external commands, set LC_MESSAGES to C.
+              (process-environment
+               (cons "LC_MESSAGES=C" process-environment))
+              (w32-quote-process-args t))
+          (if (eq okstatus 'async)
+              ;; Run asynchronously.
+              (let ((proc
+                     (let (process-connection-type)
+                       (apply #'start-file-process command
+                              (current-buffer) command squeezed))))
+                (when vc-command-messages
+                  (let ((inhibit-message vc-inhibit-message))
+                    (message "Running in background: %s"
+                             full-command)))
+                ;; Get rid of the default message insertion, in case
+                ;; we don't set a sentinel explicitly.
+                (set-process-sentinel proc #'ignore)
+                (set-process-filter proc #'vc-process-filter)
+                (setq status proc)
+                (when vc-command-messages
+                  (vc-run-delayed
+                    (let ((message-truncate-lines t)
+                          (inhibit-message vc-inhibit-message))
+                      (message "Done in background: %s"
+                               full-command)))))
+            ;; Run synchronously
+            (when vc-command-messages
+              (let ((inhibit-message vc-inhibit-message))
+                (message "Running in foreground: %s" full-command)))
+            (let ((buffer-undo-list t))
+              (setq status (apply #'process-file
+                                  command nil t nil squeezed)))
+            (when (and (not (eq t okstatus))
+                       (or (not (integerp status))
+                           (and okstatus (< okstatus status))))
+              (unless (eq ?\s (aref (buffer-name (current-buffer)) 0))
+                (pop-to-buffer (current-buffer))
+                (goto-char (point-min))
+                (shrink-window-if-larger-than-buffer))
+              (when-let* (noninteractive
+                          (out (string-trim (buffer-string))))
+                (unless (string-empty-p out)
+                  (message "%s" out)))
+              (error "Failed (%s): %s"
+                     (if (integerp status)
+                         (format "status %d" status)
+                       status)
+                     full-command))
+            (when vc-command-messages
+              (let ((inhibit-message vc-inhibit-message))
+                (message "Done (status=%d): %s"
+                         status full-command)))))
+        (vc-run-delayed
+          (run-hook-with-args 'vc-post-command-functions
+                              command file-or-list flags))
+        status))))
 
 (defvar vc--inhibit-async-window nil)
 
