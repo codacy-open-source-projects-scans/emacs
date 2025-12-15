@@ -251,6 +251,7 @@ automatically)."
          '("pylsp" "pyls" ("basedpyright-langserver" "--stdio")
            ("pyright-langserver" "--stdio")
            ("pyrefly" "lsp")
+           ("ty" "server")
            "jedi-language-server" ("ruff" "server") "ruff-lsp")))
     ((js-json-mode json-mode json-ts-mode jsonc-mode)
      . ,(eglot-alternatives '(("vscode-json-language-server" "--stdio")
@@ -575,7 +576,8 @@ under cursor."
           (const :tag "Inlay hints" :inlayHintProvider)
           (const :tag "Semantic tokens" :semanticTokensProvider)
           (const :tag "Type hierarchies" :typeHierarchyProvider)
-          (const :tag "Call hierarchies" :callHierarchyProvider)))
+          (const :tag "Call hierarchies" :callHierarchyProvider)
+          (const :tag "On-demand \"pull\" diagnostics" :diagnosticProvider)))
 
 (defcustom eglot-advertise-cancellation nil
   "If non-nil, Eglot attempts to inform server of canceled requests.
@@ -737,6 +739,7 @@ This can be useful when using docker to run a language server.")
                              :textEdit :additionalTextEdits :commitCharacters
                              :command :data :tags))
       (Diagnostic (:range :message) (:severity :code :source :relatedInformation :codeDescription :tags))
+      (DocumentDiagnosticReport (:kind :items))
       (DocumentHighlight (:range) (:kind))
       (ExecuteCommandParams ((:command . string)) (:arguments))
       (FileSystemWatcher (:globPattern) (:kind))
@@ -1125,7 +1128,7 @@ object."
              :rangeFormatting    `(:dynamicRegistration :json-false)
              :rename             `(:dynamicRegistration :json-false)
              :semanticTokens     `(:dynamicRegistration :json-false
-                                   :requests '(:range t :full (:delta t))
+                                   :requests '(:full (:delta t))
                                    :overlappingTokenSupport t
                                    :multilineTokenSupport t
                                    :tokenTypes [,@eglot-semantic-token-types]
@@ -1134,6 +1137,7 @@ object."
              :inlayHint          `(:dynamicRegistration :json-false)
              :callHierarchy      `(:dynamicRegistration :json-false)
              :typeHierarchy      `(:dynamicRegistration :json-false)
+             :diagnostic         `(:dynamicRegistration :json-false)
              :publishDiagnostics (list :relatedInformation :json-false
                                        :versionSupport t
                                        ;; TODO: We can support :codeDescription after
@@ -1304,7 +1308,7 @@ If optional MARKERS, make markers instead."
 (cl-defmethod initialize-instance :before ((_server eglot-lsp-server) &optional args)
   (cl-remf args :initializationOptions))
 
-(defvar-local eglot--versioned-identifier 0
+(defvar-local eglot--docver 0
   "LSP document version.  Bumped on `eglot--after-change'.")
 
 (defvar eglot--servers-by-project (make-hash-table :test #'equal)
@@ -2169,7 +2173,7 @@ and just return it.  PROMPT shouldn't end with a question mark."
     (define-key map [remap display-local-help] #'eldoc-doc-buffer)
     map))
 
-(defvar-local eglot--current-flymake-report-fn nil
+(defvar-local eglot--flymake-push-report-fn nil
   "Current flymake report function for this buffer.")
 
 (defvar-local eglot--saved-bindings nil
@@ -2295,9 +2299,9 @@ Use `eglot-managed-p' to determine if current buffer is managed.")
     (cl-loop for (var . saved-binding) in eglot--saved-bindings
              do (set (make-local-variable var) saved-binding))
     (remove-function (local 'imenu-create-index-function) #'eglot-imenu)
-    (when eglot--current-flymake-report-fn
-      (eglot--report-to-flymake nil nil)
-      (setq eglot--current-flymake-report-fn nil))
+    (when eglot--flymake-push-report-fn
+      (eglot--flymake-push nil nil)
+      (setq eglot--flymake-push-report-fn nil))
     (run-hooks 'eglot-managed-mode-hook)
     (let ((server eglot--cached-server))
       (setq eglot--cached-server nil)
@@ -2337,13 +2341,16 @@ Use `eglot-managed-p' to determine if current buffer is managed.")
   "A cons (DIAGNOSTICS . VERSION) for current buffer.
 DIAGNOSTICS is a list of Flymake diagnostics objects.  VERSION is the
 LSP Document version reported for DIAGNOSTICS (comparable to
-`eglot--versioned-identifier') or nil if server didn't bother.")
+`eglot--docver') or nil if server didn't bother.")
 
 (defvar revert-buffer-preserve-modes)
+(defvar eglot-semantic-tokens-mode) ;; forward decl
 (defun eglot--after-revert-hook ()
   "Eglot's `after-revert-hook'."
-  ;; FIXME: Do we really need this?
-  (when revert-buffer-preserve-modes (eglot--signal-textDocument/didOpen)))
+  (when revert-buffer-preserve-modes
+    (eglot--signal-textDocument/didOpen)
+    (when eglot-semantic-tokens-mode
+      (eglot-semantic-tokens-mode))))
 
 (defun eglot--maybe-activate-editing-mode ()
   "Maybe activate `eglot--managed-mode'.
@@ -2630,21 +2637,18 @@ still unanswered LSP requests to the server\n"))))
 (put 'eglot-warning 'flymake-category 'flymake-warning)
 (put 'eglot-error 'flymake-category 'flymake-error)
 
-(defalias 'eglot--make-diag #'flymake-make-diagnostic)
-(defalias 'eglot--diag-data #'flymake-diagnostic-data)
-
 (defun eglot--flymake-diagnostics (beg &optional end)
   "Like `flymake-diagnostics', but for Eglot-specific diagnostics."
   (cl-loop for diag in (flymake-diagnostics beg end)
-           for data = (eglot--diag-data diag)
+           for data = (flymake-diagnostic-data diag)
            for lsp-diag = (alist-get 'eglot-lsp-diag data)
            for version = (alist-get 'eglot--doc-version data)
            when (and lsp-diag (or (null version)
-                                  (= version eglot--versioned-identifier)))
+                                  (= version eglot--docver)))
            collect diag))
 
 (defun eglot--diag-to-lsp-diag (diag)
-  (alist-get 'eglot-lsp-diag (eglot--diag-data diag)))
+  (alist-get 'eglot-lsp-diag (flymake-diagnostic-data diag)))
 
 (defvar eglot-diagnostics-map
   (let ((map (make-sparse-keymap)))
@@ -2753,12 +2757,7 @@ expensive cached value of `file-truename'.")
           &key uri diagnostics version
           &allow-other-keys) ; FIXME: doesn't respect `eglot-strict-mode'
   "Handle notification publishDiagnostics."
-  (cl-flet ((eglot--diag-type (sev)
-              (cond ((null sev) 'eglot-error)
-                    ((<= sev 1) 'eglot-error)
-                    ((= sev 2)  'eglot-warning)
-                    (t          'eglot-note)))
-            (find-it (abspath)
+  (cl-flet ((find-it (abspath)
               ;; `find-buffer-visiting' would be natural, but calls the
               ;; potentially slow `file-truename' (bug#70036).
               (cl-loop for b in (eglot--managed-buffers server)
@@ -2771,53 +2770,22 @@ expensive cached value of `file-truename'.")
         (with-current-buffer buffer
           (cl-loop
            initially
-           (if (and version (/= version eglot--versioned-identifier))
+           (if (and version (/= version eglot--docver))
                (cl-return))
            (setq
             ;; if no explicit version received, assume it's current.
-            version eglot--versioned-identifier
+            version eglot--docver
             flymake-list-only-diagnostics
             (assoc-delete-all path flymake-list-only-diagnostics))
            for diag-spec across diagnostics
-           collect (eglot--dbind ((Diagnostic) range code message severity source tags)
-                       diag-spec
-                     (pcase-let
-                         ((`(,beg . ,end) (eglot-range-region range)))
-                       ;; Fallback to `flymake-diag-region' if server
-                       ;; botched the range
-                       (when (= beg end)
-                         (if-let* ((st (plist-get range :start))
-                                   (diag-region
-                                    (flymake-diag-region
-                                     (current-buffer) (1+ (plist-get st :line))
-                                     (plist-get st :character))))
-                             (setq beg (car diag-region) end (cdr diag-region))
-                           (eglot--widening
-                            (goto-char (point-min))
-                            (setq beg
-                                  (eglot--bol
-                                   (1+ (plist-get (plist-get range :start) :line))))
-                            (setq end
-                                  (line-end-position
-                                   (1+ (plist-get (plist-get range :end) :line)))))))
-                       (eglot--make-diag
-                        (current-buffer) beg end
-                        (eglot--diag-type severity)
-                        (list source code message)
-                        `((eglot-lsp-diag . ,diag-spec)
-                          (eglot--doc-version . ,version))
-                        (when-let* ((faces
-                                     (cl-loop for tag across tags
-                                              when (alist-get tag eglot--tag-faces)
-                                              collect it)))
-                          `((face . ,faces))))))
+           collect (eglot--flymake-make-diag diag-spec version)
            into diags
            finally (cond ((and
                            ;; only add to current report if Flymake
                            ;; starts on idle-timer (github#958)
                            (not (null flymake-no-changes-timeout))
-                           eglot--current-flymake-report-fn)
-                          (eglot--report-to-flymake diags version))
+                           eglot--flymake-push-report-fn)
+                          (eglot--flymake-push diags version))
                          (t
                           (setq eglot--diagnostics (cons diags version))))))
       (cl-loop
@@ -2826,8 +2794,9 @@ expensive cached value of `file-truename'.")
                  (let* ((start (plist-get range :start))
                         (line (1+ (plist-get start :line)))
                         (char (1+ (plist-get start :character))))
-                   (eglot--make-diag
-                    path (cons line char) nil (eglot--diag-type severity)
+                   (flymake-make-diagnostic
+                    path (cons line char) nil
+                    (eglot--flymake-diag-type severity)
                     (list source code message))))
        into diags
        finally
@@ -2908,7 +2877,7 @@ Sets `eglot--TextDocumentIdentifier-cache' (which see) as a side effect."
 (defun eglot--VersionedTextDocumentIdentifier ()
   "Compute VersionedTextDocumentIdentifier object for current buffer."
   (append (eglot--TextDocumentIdentifier)
-          `(:version ,eglot--versioned-identifier)))
+          `(:version ,eglot--docver)))
 
 (cl-defun eglot--languageId (&optional (server (eglot--current-server-or-lose)))
   "Compute LSP \\='languageId\\=' string for current buffer.
@@ -2993,13 +2962,13 @@ buffer."
             (,end . ,(copy-marker end t)))
           eglot--recent-changes)))
 
-(defvar eglot--document-changed-hook '(eglot--signal-textDocument/didChange)
+(defvar eglot--send-changes-hook '()
   "Internal hook for doing things when the document changes.")
 
 (defun eglot--after-change (beg end pre-change-length)
   "Hook onto `after-change-functions'.
 Records BEG, END and PRE-CHANGE-LENGTH locally."
-  (cl-incf eglot--versioned-identifier)
+  (cl-incf eglot--docver)
   (pcase (car-safe eglot--recent-changes)
     (`(,lsp-beg ,lsp-end
                 (,b-beg . ,b-beg-marker)
@@ -3041,7 +3010,7 @@ Records BEG, END and PRE-CHANGE-LENGTH locally."
            eglot-send-changes-idle-time
            nil (lambda () (eglot--when-live-buffer buf
                             (when eglot--managed-mode
-                              (run-hooks 'eglot--document-changed-hook)
+                              (eglot--signal-textDocument/didChange)
                               (setq eglot--change-idle-timer nil))))))))
 
 (defvar-local eglot-workspace-configuration ()
@@ -3166,13 +3135,14 @@ When called interactively, use the currently active server"
                    vconcat `[,(list :range `(:start ,beg :end ,end)
                                     :rangeLength len :text text)]))))
       (setq eglot--recent-changes nil)
-      (jsonrpc--call-deferred server))))
+      (jsonrpc--call-deferred server)
+      (run-hooks 'eglot--send-changes-hook))))
 
 (defun eglot--signal-textDocument/didOpen ()
   "Send textDocument/didOpen to server."
   ;; Flush any potential pending change.
   (setq eglot--recent-changes nil
-        eglot--versioned-identifier 0
+        eglot--docver 0
         eglot--TextDocumentIdentifier-cache nil)
   (jsonrpc-notify
    (eglot--current-server-or-lose)
@@ -3210,6 +3180,48 @@ When called interactively, use the currently active server"
       :text (buffer-substring-no-properties (point-min) (point-max))
       :textDocument (eglot--TextDocumentIdentifier)))))
 
+(defun eglot--flymake-diag-type (severity)
+  "Convert LSP diagnostic SEVERITY to Eglot/Flymake diagnostic type."
+  (cond ((null severity) 'eglot-error)
+        ((<= severity 1) 'eglot-error)
+        ((= severity 2)  'eglot-warning)
+        (t               'eglot-note)))
+
+(defun eglot--flymake-make-diag (diag-spec version)
+  "Convert LSP diagnostic DIAG-SPEC to Flymake diagnostic.
+VERSION is the document version number."
+  (eglot--dbind ((Diagnostic) range code message severity source tags)
+      diag-spec
+    (pcase-let
+        ((`(,beg . ,end) (eglot-range-region range)))
+      ;; Fallback to `flymake-diag-region' if server botched the range
+      (when (= beg end)
+        (if-let* ((st (plist-get range :start))
+                  (diag-region
+                   (flymake-diag-region
+                    (current-buffer) (1+ (plist-get st :line))
+                    (plist-get st :character))))
+            (setq beg (car diag-region) end (cdr diag-region))
+          (eglot--widening
+           (goto-char (point-min))
+           (setq beg
+                 (eglot--bol
+                  (1+ (plist-get (plist-get range :start) :line))))
+           (setq end
+                 (line-end-position
+                  (1+ (plist-get (plist-get range :end) :line)))))))
+      (flymake-make-diagnostic
+       (current-buffer) beg end
+       (eglot--flymake-diag-type severity)
+       (list source code message)
+       `((eglot-lsp-diag . ,diag-spec)
+         (eglot--doc-version . ,version))
+       (when-let* ((faces
+                    (cl-loop for tag across tags
+                             when (alist-get tag eglot--tag-faces)
+                             collect it)))
+         `((face . ,faces)))))))
+
 (defun eglot-flymake-backend (report-fn &rest _more)
   "A Flymake backend for Eglot.
 Calls REPORT-FN (or arranges for it to be called) when the server
@@ -3217,18 +3229,51 @@ publishes diagnostics.  Between calls to this function, REPORT-FN
 may be called multiple times (respecting the protocol of
 `flymake-diagnostic-functions')."
   (cond (eglot--managed-mode
-         (setq eglot--current-flymake-report-fn report-fn)
-         (eglot--report-to-flymake (car eglot--diagnostics)
-                                   (cdr eglot--diagnostics)))
+         (cond
+          ;; Use pull diagnostics if server supports it
+          ((eglot-server-capable :diagnosticProvider)
+           (eglot--flymake-pull report-fn))
+          ;; Otherwise use traditional push diagnostics
+          (t
+           (setq eglot--flymake-push-report-fn report-fn)
+           (eglot--flymake-push (car eglot--diagnostics)
+                                     (cdr eglot--diagnostics)))))
         (t
          (funcall report-fn nil))))
 
-(defun eglot--report-to-flymake (diags version)
-  "Internal helper for `eglot-flymake-backend'."
+(defun eglot--flymake-pull (report-fn)
+  "Pull diagnostics from server and call REPORT-FN."
+  (let ((buf (current-buffer))
+        (server (eglot--current-server-or-lose))
+        (version eglot--docver))
+    (eglot--async-request
+     server
+     :textDocument/diagnostic
+     (list :textDocument (eglot--TextDocumentIdentifier))
+     :success-fn
+     (lambda (result)
+       (eglot--when-live-buffer buf
+         (eglot--dbind ((DocumentDiagnosticReport) kind items) result
+           (pcase kind
+             ("full"
+              (let ((diags
+                     (cl-loop
+                      for diag-spec across items
+                      collect (eglot--flymake-make-diag diag-spec version))))
+                (setq eglot--diagnostics (cons diags version))))
+             ("unchanged"
+              ;; Server says diagnostics haven't changed, report what we have
+              ))
+           (funcall report-fn (car eglot--diagnostics)
+                    :region (cons (point-min) (point-max))))))
+     :hint :textDocument/diagnostic)))
+
+(defun eglot--flymake-push (diags version)
+  "Push previously collected diagnostics to `eglot--flymake-push-report-fn'."
     (save-restriction
       (widen)
-      (if (or (null version) (= version eglot--versioned-identifier))
-          (funcall eglot--current-flymake-report-fn diags
+      (if (or (null version) (= version eglot--docver))
+          (funcall eglot--flymake-push-report-fn diags
                    ;; If the buffer hasn't changed since last
                    ;; call to the report function, flymake won't
                    ;; delete old diagnostics.  Using :region
@@ -3241,7 +3286,7 @@ may be called multiple times (respecting the protocol of
         ;; signal we're alive and clear a possible "Wait" state.  We
         ;; hackingly achieve this by reporting an empty list and making
         ;; sure it pertains to a 0-length region.
-        (funcall eglot--current-flymake-report-fn nil
+        (funcall eglot--flymake-push-report-fn nil
                  :region (cons (point-min) (point-min)))))
   (setq eglot--diagnostics (cons diags version)))
 
@@ -3939,9 +3984,9 @@ Returns a list as described in docstring of `imenu--index-alist'."
   "Apply EDITS for current buffer if at VERSION, or if it's nil.
 If SILENT, don't echo progress in mode-line."
   (unless edits (cl-return-from eglot--apply-text-edits))
-  (unless (or (not version) (equal version eglot--versioned-identifier))
+  (unless (or (not version) (equal version eglot--docver))
     (jsonrpc-error "Edits on `%s' require version %d, you have %d"
-                   (current-buffer) version eglot--versioned-identifier))
+                   (current-buffer) version eglot--docver))
   (atomic-change-group
     (let* ((change-group (prepare-change-group))
            (howmany (length edits))
@@ -4078,7 +4123,7 @@ edit proposed by the server."
    (let ((tap (thing-at-point 'symbol t)))
      (list (read-from-minibuffer
             (format "Rename `%s' to: " (or tap "unknown symbol"))
-            tap nil nil nil tap))))
+            nil nil nil nil tap))))
   (eglot-server-capable-or-lose :renameProvider)
   (eglot--apply-workspace-edit
    (eglot--request (eglot--current-server-or-lose)
@@ -4619,34 +4664,36 @@ If NOERROR, return predicate, else erroring function."
            semtok-cache)
         probe))))
 
-(defvar-local eglot--semtok-cache nil
-  "List of plists describing recent semtok response.
+(defvar-local eglot--semtok-state nil
+  "Plist describing current semtok state.
 See `eglot--semtok-request' implementation for details.")
-
-(defvar-local eglot--semtok-inflight (make-hash-table)
-  "Map of JSONRPC request ID to (METHOD DOCVER . REGIONS).
-REGIONS is a list of (BEG . END) of positions that can be serviced by
-this request.")
 
 (cl-defmethod eglot-handle-request
   (server (_method (eql workspace/semanticTokens/refresh)))
   "Handle a semanticTokens/refresh request from SERVER."
   (dolist (buffer (eglot--managed-buffers server))
     (eglot--when-live-buffer buffer
-      (eglot--widening
-       (font-lock-flush)))))
+      ;; JT@2025-11-20: As of time of writing, at least two servers (clangd and lean)
+      ;; abuse this entry point.  There is no practical benefit to having it enabled,
+      ;; just disadvantages.
+      ;; (unless (zerop eglot--docver)
+      ;;   (eglot--widening (font-lock-flush)))
+      )))
 
 (define-minor-mode eglot-semantic-tokens-mode
   "Minor mode for fontifying buffer with LSP server's semantic tokens."
   :global nil
-  (setq eglot--semtok-cache nil)
-  (clrhash eglot--semtok-inflight)
+  (setq eglot--semtok-state nil)
   (cond (eglot-semantic-tokens-mode
          (if (not (eglot-server-capable :semanticTokensProvider))
              (eglot-semantic-tokens-mode -1)
+           (add-hook 'eglot--send-changes-hook
+                     #'eglot--semtok-after-send-changes)
            (font-lock-add-keywords nil '((eglot--semtok-font-lock)) 'append)
            (font-lock-flush)))
         (t
+         (remove-hook 'eglot--send-changes-hook
+                      #'eglot--semtok-after-send-changes)
          (font-lock-remove-keywords nil '((eglot--semtok-font-lock)))
          (font-lock-flush))))
 
@@ -4661,116 +4708,73 @@ this request.")
    finally
    (cl-return (vconcat new (substring old-data old-i (length old-data))))))
 
-(cl-defun eglot--semtok-request
-    (beg end &aux (docver eglot--versioned-identifier) reused)
+(defun eglot--semtok-after-send-changes ()
+  ;; (trace-values "Dispatching")
+  (setf (plist-get eglot--semtok-state :dispatched) t))
+
+(cl-defun eglot--semtok-request (beg end &aux (docver eglot--docver))
   "Ask for tokens.  Arrange for BEG..END to be font-lock flushed."
-  (cl-labels
-      ((fullish-p (m)
-         (memq m '(:textDocument/semanticTokens/full/delta
-                   :textDocument/semanticTokens/full)))
-       (prune-outdated ()
-         (setq eglot--semtok-cache
-            (cl-delete-if (lambda (e)
-                            (not (eq docver (plist-get e :docver))))
-                          eglot--semtok-cache)))
-       (req (method params &optional cont
-                    &aux req-id (buf (current-buffer)))
-         (setq req-id
-               (eglot--async-request
-                (eglot--current-server-or-lose) method params
-                :success-fn
-                (lambda (response)
-                  (eglot--when-live-buffer buf
-                    (pcase-let ((`(,method ,docver ,regions)
-                                 (gethash req-id eglot--semtok-inflight)))
-                      (remhash req-id eglot--semtok-inflight)
-                      ;; (trace-values "Response: "
-                      ;;               method
-                      ;;               eglot--versioned-identifier docver
-                      ;;               "edits: "
-                      ;;               (length (cl-getf response :edits))
-                      ;;               "data: "
-                      ;;               (length (cl-getf response :data)))
-                      ;; A user edit may have come in while the request
-                      ;; was inflight, changing the state of the buffer...
-                      (when (eq docver eglot--versioned-identifier)
-                        (push
-                         (list :docver docver
-                               :method method
-                               :resultId (plist-get response :resultId)
-                               :data (if cont (funcall cont response)
-                                       (plist-get response :data))
-                               :valid (if (fullish-p method)
-                                          (eglot--widening
-                                           (cons (point-min) (point-max)))
-                                        (cons beg end)))
-                         eglot--semtok-cache))
-                      ;; ... but we should flush unconditionally.  If
-                      ;; this response was out-of-date,
-                      ;; `eglot--semtok-font-lock' should just trigger
-                      ;; another request.
-                      (cl-loop for (b . e) in regions
-                               do (font-lock-flush b e))
-                      ;; (trace-values "Flushed" (length regions)
-                      ;;               "regions" regions)
-                      )))
-                ;; For "range" requests, make sure we have one unique
-                ;; request defeating part of the "deferred" mechanism.
-                :hint (if (fullish-p method) method
-                        (gensym (symbol-name method)))))
-         ;; Can prune outdated entries now, not earlier, since "delta"
-         ;; requests rely on outdated entries by definition.
-         (prune-outdated)
-         (puthash req-id (list method docver (list (cons beg end)))
-                  eglot--semtok-inflight)))
-    ;; JT@2025-11-16: Many back-to-back calls for
-    ;; `eglot--semtok-request' and small regions occur even on
-    ;; trivial/fast edits.  We try to send just one request.  If there
-    ;; is a "full" or "full/delta" request in flight, we can piggy back
-    ;; onto it our region and our docver, and exit.  That's because very
-    ;; likely it's not actually inflight yet (because of the "deferred"
-    ;; mechanism, it's waiting for didChange), so we can still do
-    ;; changes to the state it represents when it is actually sent.
-    (cl-loop for v being the hash-values of eglot--semtok-inflight
-             when (fullish-p (car v)) do
-             (push (cons beg end) (caddr v))
-             (setf (cadr v) docver)
-             (cl-return-from eglot--semtok-request (cons 'skipped docver)))
-    (cond
-     ((and (eglot-server-capable :semanticTokensProvider :full :delta)
-           (setq reused (cl-find-if
-                         (lambda (e) (fullish-p (plist-get e :method)))
-                         eglot--semtok-cache)))
-      (req :textDocument/semanticTokens/full/delta
-           (list :textDocument (eglot--TextDocumentIdentifier)
-                 :previousResultId (plist-get reused :resultId))
-           (lambda (response)
-             (if-let* ((edits (plist-get response :edits)))
-                 (eglot--semtok-apply-delta-edits
-                             (plist-get reused :data)
-                             edits)
-               (plist-get response :data)))))
-     ((eglot-server-capable :semanticTokensProvider :range)
-      (req :textDocument/semanticTokens/range
-           (list :textDocument (eglot--TextDocumentIdentifier)
-                 :range (eglot-region-range beg end))))
-     (t
-      (req :textDocument/semanticTokens/full
-           (list :textDocument (eglot--TextDocumentIdentifier)))))))
+  (cl-macrolet ((c (tag) `(plist-get eglot--semtok-state ,tag)))
+    (cl-labels
+        ((req (method &optional params cont
+                      &aux (buf (current-buffer)))
+           (setf (c :req-docver) docver
+                 (c :orig-docver) docver
+                 (c :dispatched) (not eglot--recent-changes)
+                 (c :regions) (cons (cons (copy-marker beg) (copy-marker end)) (c :regions)))
+           ;; (trace-values "Request" method)
+           (eglot--async-request
+            (eglot--current-server-or-lose) method
+            (append (nconc params `(:textDocument ,(eglot--TextDocumentIdentifier))))
+            :success-fn
+            (lambda (response)
+              (eglot--when-live-buffer buf
+                ;; (trace-values "Response"
+                ;;               eglot--docver docver (c :orig-docver) (c :req-docver))
+                ;; This skip is different from the one below.  Comparing
+                ;; the lexical `docver' to the original request's
+                ;; `:orig-docver' allows skipping the outdated reponse
+                ;; of a dispatched request that has been overriden by
+                ;; another (perhaps not dispatched yet) request.
+                (when (eq docver (c :orig-docver))
+                  (setf (c :docver) (c :req-docver)
+                        (c :data) (if cont (funcall cont response)
+                                    (plist-get response :data))
+                        (c :resultId) (plist-get response :resultId))
+                  ;; (trace-values "Flushing" (length (c :regions)) "regions")
+                  (cl-loop for (a . b) in (c :regions) do (font-lock-flush a b))
+                  (setf (c :regions) nil))))
+            :hint 'semtok)))
+      ;; Skip actually making the request if there's an undispatched
+      ;; waiting for a eglot--send-changes-hook flush.  Just update the
+      ;; regions and the `:req-docver'.
+      (unless (or (null (c :req-docver)) (c :dispatched))
+        (push (cons (copy-marker beg) (copy-marker end)) (c :regions))
+        (setf (c :req-docver) eglot--docver)
+        (cl-return-from eglot--semtok-request 'skipped))
+      (cond
+       ((and (eglot-server-capable :semanticTokensProvider :full :delta)
+             (c :data))
+        (req :textDocument/semanticTokens/full/delta
+             `(:previousResultId ,(c :resultId))
+             (let ((data (c :data) ))
+               (lambda (response)
+                 (if-let* ((edits (plist-get response :edits)))
+                     (eglot--semtok-apply-delta-edits data edits)
+                   (plist-get response :data))))))
+       (t
+        (req :textDocument/semanticTokens/full))))))
 
 (cl-defun eglot--semtok-font-lock (limit &aux (beg (point)) (end limit))
   "Arrange for font-lock to happen from point until LIMIT.
 Either do it immediately if the information available is up-to-date or
 request new information from the server and return and hope the font
 lock machinery calls us again."
-  (let ((probe
-         (cl-find-if
-          (jsonrpc-lambda (&key docver valid &allow-other-keys)
-            (and (eq docver eglot--versioned-identifier)
-                 (<= (car valid) beg end (cdr valid))))
-          eglot--semtok-cache)))
-    (cond (probe
-           (eglot--semtok-font-lock-1 beg end (plist-get probe :data)))
+  (cl-macrolet ((c (tag) `(plist-get eglot--semtok-state ,tag)))
+    (cond ((and (eq (c :docver) eglot--docver)
+                (c :dispatched)
+                (c :data))
+           (eglot--semtok-font-lock-1 beg end (c :data)))
           (t
            (eglot--semtok-font-lock-2 beg end)
            (eglot--semtok-request beg end))))
