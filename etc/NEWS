@@ -2087,6 +2087,11 @@ for docstrings where symbols 'nil' and 't' are in quotes.
 In most cases, having it enabled leads to a large amount of false
 positives.
 
+---
+*** New function 'checkdoc-batch'.
+It checks the buffer in batch mode, prints all found errors
+and signals the first found error.
+
 *** New file-local variable 'lisp-indent-local-overrides'.
 This variable can be used to locally override the indent specification
 of symbols.
@@ -2279,14 +2284,18 @@ one as before.  This makes them different from 'vc-diff' and
 *** 'diff-apply-hunk' now supports creating and deleting files.
 
 +++
-*** 'diff-apply-hunk' and 'diff-apply-buffer' now consider the region.
-If the region is active, these commands now apply all hunks that the
-region overlaps.  Otherwise, they have their existing behavior.
+*** Diff mode's application and killing commands now consider the region.
+If the region is active, 'diff-apply-hunk', 'diff-apply-buffer' and
+'diff-hunk-kill' now apply or kill all hunks that the region overlaps.
+Otherwise, they have their existing behavior.
 
 +++
 *** 'diff-apply-buffer' can reverse-apply.
 With a prefix argument, it now reverse-applies hunks.
 This matches the existing prefix argument to 'diff-apply-hunk'.
+
+---
+*** 's' is now bound to 'diff-split-hunk' in read-only Diff mode buffers.
 
 ** Ediff
 
@@ -3056,6 +3065,10 @@ Meant to be given a global binding convenient to the user.  Example:
 *** 'speedbar-easymenu-definition-trailer' is now a function.
 
 ** Icomplete
+
+*** New key 'M-j' for 'icomplete-mode' and 'icomplete-vertical-mode'.
+Like 'M-j' in 'fido-mode', it can exit the minibuffer with a selected
+candidate even when 'icomplete-show-matches-on-no-input' is non-nil.
 
 *** New user options for 'icomplete-vertical-mode'.
 New user options have been added to enhance 'icomplete-vertical-mode':
