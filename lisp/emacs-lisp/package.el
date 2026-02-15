@@ -148,7 +148,6 @@
 (require 'cl-lib)
 (eval-when-compile (require 'subr-x))
 (eval-when-compile (require 'epg))      ;For setf accessors.
-(eval-when-compile (require 'inline))   ;For `define-inline'
 (require 'seq)
 
 (require 'tabulated-list)
@@ -508,8 +507,6 @@ package."
 ;; `package-load-all-descriptors', which ultimately populates the
 ;; `package-alist' variable.
 
-(declare-function package-vc-version "package-vc" (pkg))
-
 (defun package-process-define-package (exp)
   "Process define-package expression EXP and push it to `package-alist'.
 EXP should be a form read from a foo-pkg.el file.
@@ -803,12 +800,8 @@ attached."
                       (insert-buffer-substring tmp-buf)
                       (comment-region start (point))))))
               t)
-             (?c
-              (view-file news)
-              t)
-             (?b
-              (dired pkg-dir "-R") ;FIXME: Is recursive dired portable?
-              t)))))
+             (?c (view-file news) t)
+             (?b (dired pkg-dir) t)))))
 
 (declare-function dired-get-marked-files "dired")
 
@@ -2065,8 +2058,6 @@ had been enabled."
                 (message  "Package `%s' installed" name))
             (error  "Package `%s' not installed" name))))))
 
-(declare-function package-vc-upgrade "package-vc" (pkg))
-
 ;;;###autoload
 (defun package-upgrade (name)
   "Upgrade package NAME if a newer version exists.
@@ -2081,7 +2072,7 @@ NAME should be a symbol."
          (package-install-upgrade-built-in (not pkg-desc)))
     ;; `pkg-desc' will be nil when the package is an "active built-in".
     (if (and pkg-desc (package-vc-p pkg-desc))
-        (package-vc-upgrade pkg-desc)
+        (error "Use `package-vc-upgrade' for VC packages")
       (let ((new-desc (cadr (assq name package-archive-contents))))
         (when (or (null new-desc)
                   (version-list-= (package-desc-version pkg-desc)
@@ -2102,16 +2093,16 @@ NAME should be a symbol."
    #'car
    (seq-filter
     (lambda (elt)
-      (or (let ((available
-                 (assq (car elt) package-archive-contents)))
-            (and available
-                 (or (and
-                      include-builtins
-                      (not (package-desc-version (cadr elt))))
-                     (version-list-<
-                      (package-desc-version (cadr elt))
-                      (package-desc-version (cadr available))))))
-          (package-vc-p (cadr elt))))
+      (let ((available
+             (assq (car elt) package-archive-contents)))
+        (and available
+             (or (and
+                  include-builtins
+                  (not (package-desc-version (cadr elt))))
+                 (version-list-<
+                  (package-desc-version (cadr elt))
+                  (package-desc-version (cadr available))))
+             (not (package-vc-p (cadr elt))))))
     (if include-builtins
         (append package-alist
                 (mapcan

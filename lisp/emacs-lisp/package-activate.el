@@ -63,10 +63,9 @@ If VERSION is nil, the package is not made available (it is \"disabled\")."
 
 (defvar package--default-summary "No description available.")
 
-(define-inline package-vc-p (pkg-desc)
+(defun package-vc-p (pkg-desc)
   "Return non-nil if PKG-DESC is a VC package."
-  (inline-letevals (pkg-desc)
-    (inline-quote (eq (package-desc-kind ,pkg-desc) 'vc))))
+  (eq (package-desc-kind pkg-desc) 'vc))
 
 (cl-defstruct (package-desc
                ;; Rename the default constructor from `make-package-desc'.
@@ -654,7 +653,7 @@ This function is intended for addition to `after-change-major-mode-hook'."
                  "[Upgrade?]"
                  face mode-line-emphasis
                  mouse-face mode-line-highlight
-                 help-echo "Click to see suggested packages for this file."
+                 help-echo "Click to see packages we suggest to improve editing in this buffer."
                  keymap ,(let ((map (make-sparse-keymap)))
                            (define-key map
                                        [mode-line down-mouse-1]
