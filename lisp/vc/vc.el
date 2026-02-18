@@ -3096,7 +3096,7 @@ to.  When called interactively with a prefix argument, prompt for
 UPSTREAM-LOCATION.  In some version control systems UPSTREAM-LOCATION
 can be a remote branch name.
 
-This command is like `vc-root-diff-outgoing-base' except that it does
+This command is like `vc-root-diff-outstanding' except that it does
 not include uncommitted changes.
 
 See `vc-use-incoming-outgoing-prefixes' regarding giving this command a
@@ -3115,7 +3115,7 @@ can be a remote branch name.
 When called from Lisp optional argument FILESET overrides the VC
 fileset.
 
-This command is like `vc-diff-outgoing-base' except that it does not
+This command is like `vc-diff-outstanding' except that it does not
 include uncommitted changes.
 
 See `vc-use-incoming-outgoing-prefixes' regarding giving this command a
@@ -3353,7 +3353,7 @@ REFRESH is passed on to `vc--incoming-revision'."
                                           refresh)))
 
 ;;;###autoload
-(defun vc-root-diff-outgoing-base (&optional upstream-location)
+(defun vc-root-diff-outstanding (&optional upstream-location)
   "Report diff of all changes since the merge base with UPSTREAM-LOCATION.
 The merge base with UPSTREAM-LOCATION means the common ancestor of the
 working revision and UPSTREAM-LOCATION.
@@ -3361,11 +3361,9 @@ Uncommitted changes are included in the diff.
 
 When unspecified, UPSTREAM-LOCATION is the outgoing base.
 For a trunk branch this is always the place \\[vc-push] would push to.
-For a topic branch, see whether the branch matches one of
-`vc-trunk-branch-regexps' or `vc-topic-branch-regexps', or else query
-the backend for an appropriate outgoing base.
+For a topic branch, query the backend for an appropriate outgoing base.
 See `vc-trunk-or-topic-p' regarding the difference between trunk and
-topic branches.
+topic branches and how Emacs classifies the current branch.
 
 When called interactively with a prefix argument, prompt for
 UPSTREAM-LOCATION.  In some version control systems, UPSTREAM-LOCATION
@@ -3379,10 +3377,10 @@ topic branch.  (With a double prefix argument, this command is like
 `vc-diff-outgoing' except that it includes uncommitted changes.)"
   (interactive (list (vc--maybe-read-outgoing-base)))
   (vc--with-backend-in-rootdir "VC root-diff"
-    (vc-diff-outgoing-base upstream-location `(,backend (,rootdir)))))
+    (vc-diff-outstanding upstream-location `(,backend (,rootdir)))))
 
 ;;;###autoload
-(defun vc-diff-outgoing-base (&optional upstream-location fileset)
+(defun vc-diff-outstanding (&optional upstream-location fileset)
   "Report changes to VC fileset since the merge base with UPSTREAM-LOCATION.
 
 The merge base with UPSTREAM-LOCATION means the common ancestor of the
@@ -3391,11 +3389,9 @@ Uncommitted changes are included in the diff.
 
 When unspecified, UPSTREAM-LOCATION is the outgoing base.
 For a trunk branch this is always the place \\[vc-push] would push to.
-For a topic branch, see whether the branch matches one of
-`vc-trunk-branch-regexps' or `vc-topic-branch-regexps', or else query
-the backend for an appropriate outgoing base.
+For a topic branch, query the backend for an appropriate outgoing base.
 See `vc-trunk-or-topic-p' regarding the difference between trunk and
-topic branches.
+topic branches and how Emacs classifies the current branch.
 
 When called interactively with a prefix argument, prompt for
 UPSTREAM-LOCATION.  In some version control systems, UPSTREAM-LOCATION
@@ -3420,18 +3416,16 @@ When called from Lisp, optional argument FILESET overrides the fileset."
                       (called-interactively-p 'interactive))))
 
 ;;;###autoload
-(defun vc-log-outgoing-base (&optional upstream-location fileset)
+(defun vc-log-outstanding (&optional upstream-location fileset)
   "Show log for the VC fileset since the merge base with UPSTREAM-LOCATION.
 The merge base with UPSTREAM-LOCATION means the common ancestor of the
 working revision and UPSTREAM-LOCATION.
 
 When unspecified, UPSTREAM-LOCATION is the outgoing base.
 For a trunk branch this is always the place \\[vc-push] would push to.
-For a topic branch, see whether the branch matches one of
-`vc-trunk-branch-regexps' or `vc-topic-branch-regexps', or else query
-the backend for an appropriate outgoing base.
+For a topic branch, query the backend for an appropriate outgoing base.
 See `vc-trunk-or-topic-p' regarding the difference between trunk and
-topic branches.
+topic branches and how Emacs classifies the current branch.
 
 When called interactively with a prefix argument, prompt for
 UPSTREAM-LOCATION.  In some version control systems, UPSTREAM-LOCATION
@@ -3454,18 +3448,16 @@ When called from Lisp, optional argument FILESET overrides the fileset."
                                                         upstream-location))))
 
 ;;;###autoload
-(defun vc-root-log-outgoing-base (&optional upstream-location)
+(defun vc-root-log-outstanding (&optional upstream-location)
   "Show log of revisions since the merge base with UPSTREAM-LOCATION.
 The merge base with UPSTREAM-LOCATION means the common ancestor of the
 working revision and UPSTREAM-LOCATION.
 
 When unspecified, UPSTREAM-LOCATION is the outgoing base.
 For a trunk branch this is always the place \\[vc-push] would push to.
-For a topic branch, see whether the branch matches one of
-`vc-trunk-branch-regexps' or `vc-topic-branch-regexps', or else query
-the backend for an appropriate outgoing base.
+For a topic branch, query the backend for an appropriate outgoing base.
 See `vc-trunk-or-topic-p' regarding the difference between trunk and
-topic branches.
+topic branches and how Emacs classifies the current branch.
 
 When called interactively with a prefix argument, prompt for
 UPSTREAM-LOCATION.  In some version control systems, UPSTREAM-LOCATION
@@ -3478,7 +3470,7 @@ i.e., treat this branch as a trunk branch even if Emacs thinks it is a
 topic branch."
   (interactive (list (vc--maybe-read-outgoing-base)))
   (vc--with-backend-in-rootdir "VC revision log"
-    (vc-log-outgoing-base upstream-location `(,backend (,rootdir)))))
+    (vc-log-outstanding upstream-location `(,backend (,rootdir)))))
 
 (declare-function ediff-load-version-control "ediff" (&optional silent))
 (declare-function ediff-vc-internal "ediff-vers"
