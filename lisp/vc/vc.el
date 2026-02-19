@@ -721,6 +721,13 @@
 ;;   function is not provided, the command `vc-delete-file' will
 ;;   signal an error.
 ;;
+;; - delete-files (files)
+;;
+;;   As delete-file, except that the first argument is a list of files,
+;;   all of which require deletion.  May assume that it is called from
+;;   the repository root.  Backends can implement this for faster mass
+;;   deletions.
+;;
 ;; - rename-file (old new)
 ;;
 ;;   Rename file OLD to NEW, both in the working area and in the
@@ -1241,12 +1248,14 @@ Not supported by all backends."
 If any of FILES is actually a directory, then do the same for all
 buffers for files in that directory.
 SETTINGS is an association list of property/value pairs.  After
-executing FORM, set those properties from SETTINGS that have not yet
-been updated to their corresponding values.
+executing FORM, set those properties from SETTINGS for which FORM did
+not call `vc-file-setprop' for that property (on any file).  SETTINGS is
+evaluated once per file whose properties are to be updated, with the
+symbol `file' bound to the file name of each such file.
 Return the result of evaluating FORM."
-  (declare (debug t))
-  (cl-with-gensyms (vc-touched-properties flist)
-    `(let ((,vc-touched-properties (list t))
+  (declare (debug t) (indent 0))
+  (cl-with-gensyms (flist)
+    `(let ((vc-touched-properties (list t))
 	   (,flist nil))
        (prog2 (dolist (file ,files)
                 (if (file-directory-p file)
@@ -4362,7 +4371,6 @@ starting at that revision.  Tags and remote references also work."
   ;; Currently the prefix argument is conserved.  Possibly it could be
   ;; used to prompt for a LIMIT argument like \\`C-x v l' has.  Though
   ;; now we have "Show 4X entries" and "Show unlimited entries" that
-
   ;; might be a waste of the prefix argument to this command.  --spwhitton
   (interactive (list (vc--read-branch-to-log t)))
   (let ((fileset (vc-deduce-fileset t)))
@@ -4934,27 +4942,48 @@ file names."
                       (format "Really want to delete %s? "
 			      (file-name-nondirectory (car file-or-files)))))
     (error "Abort!"))
-  (dolist (file file-or-files)
-    (let ((buf (get-file-buffer file))
-          (backend (vc-backend file)))
-      (unless (or (file-directory-p file) (null make-backup-files)
-                  (not (file-exists-p file)))
-        (with-current-buffer (or buf (find-file-noselect file))
-          (let ((backup-inhibited nil))
-	    (backup-buffer))))
-      (when backend
-        ;; Bind `default-directory' so that the command that the backend
-        ;; runs to remove the file is invoked in the correct context.
-        (let ((default-directory (file-name-directory file)))
-          (vc-call-backend backend 'delete-file file)))
-      ;; For the case of unregistered files, or if the backend didn't
-      ;; actually delete the file.
-      (when (file-exists-p file) (delete-file file))
-      ;; Forget what VC knew about the file.
-      (vc-file-clearprops file)
-      ;; Make sure the buffer is deleted and the *vc-dir* buffers are
-      ;; updated after this.
-      (vc-resynch-buffer file nil t))))
+  (let ((post-backend-deletion
+         ;; Things to do after calling the backend's `delete-file' or
+         ;; `delete-files' function on FILE, or after determing we're
+         ;; not going to call any such function.
+         (lambda (file)
+           ;; For the case of unregistered files, or if the backend
+           ;; didn't actually delete the file.
+           (when (file-exists-p file) (delete-file file))
+           ;; Forget what VC knew about the file.
+           (vc-file-clearprops file)
+           ;; Make sure the buffer is killed and *vc-dir* buffers are
+           ;; updated after this.
+           (vc-resynch-buffer file nil t)))
+        ;; Alist associating files to delete with their backends.
+        deletions-by-backend)
+    (dolist (file file-or-files)
+      (let ((buf (get-file-buffer file))
+            (backend (vc-backend file)))
+        (unless (or (file-directory-p file) (null make-backup-files)
+                    (not (file-exists-p file)))
+          (with-current-buffer (or buf (find-file-noselect file))
+            (let ((backup-inhibited nil))
+	      (backup-buffer))))
+        (if backend
+            (push file (alist-get backend deletions-by-backend
+                                  nil nil #'eq))
+          (funcall post-backend-deletion file))))
+    (pcase-dolist (`(,backend . ,files) deletions-by-backend)
+      (if-let* ((fn (vc-find-backend-function backend 'delete-files)))
+          (let ((default-directory (vc-root-dir backend)))
+            (funcall fn files)
+            (mapc post-backend-deletion files))
+        (dolist (file files)
+          ;; Changing default directory like this has the problem that
+          ;; the containing directory for FILE may no longer exists if
+          ;; all files within it are already `missing', say.  But this
+          ;; command has always bound `default-directory' like this
+          ;; before calling BACKEND's `delete-file' function, so keep it
+          ;; for compatibility.  --spwhitton
+          (let ((default-directory (file-name-directory file)))
+            (vc-call-backend backend 'delete-file file)
+            (funcall post-backend-deletion file)))))))
 
 ;;;###autoload
 (defun vc-rename-file (old new)
