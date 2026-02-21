@@ -865,6 +865,11 @@ on graphical displays then when this option is enabled Emacs will use a
 purple bar cursor on compatible terminals as well.  See the Info node
 "(emacs) Cursor Display" for more information.
 
+---
+** New command 'copy-theme-options'
+You can use this command to copy options from a theme into your user
+configuration.
+
 
 * Editing Changes in Emacs 31.1
 
@@ -3324,6 +3329,14 @@ useful when you want the face attributes to be absolute and not
 If non-nil, FFAP always finds remote files in buffers with remote
 'default-directory'.  If nil, FFAP finds local files first for absolute
 file names in above buffers.  The default is nil.
+
++++
+*** New theme 'newcomers-presets'
+This new theme configures user options and minor modes that might
+interest new users, but would otherwise be too invasive to enable by
+default.  Recall that an Emacs theme is a generic collection of
+settings, that doesn't have to affect the appearance.  See the Info node
+"(emacs) Newcomers Theme" for more information.
 
 ** Edebug
 
