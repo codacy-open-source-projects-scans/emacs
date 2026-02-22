@@ -1648,6 +1648,12 @@ to visit URLs by typing just 'RET' instead of 'C-c RET' in read-only buffers.
 Conkeror (obsolete since Emacs 28.1), gnome-moz-remote (obsolete since
 Emacs 25.1), and gnudoit (obsolete since Emacs 25.1).
 
+*** 'browse-url-firefox-program' now supports LibreWolf and Zen Browser.
+LibreWolf, Floorp and Zen Browser, three popular Firefox forks, have been
+added to the programs that are automatically recognizable as Firefox
+workalikes.  Emacs will set 'browse-url-firefox-program' to the first
+one of these found on your system.
+
 ** CL-Lib
 
 +++
@@ -2000,6 +2006,12 @@ to 'imap-open' for 'imap-authenticate' to use, or remove 'plain' from
 'mail-re-regexps' is a new user option that is easier to customize than
 'rmail-re-abbrevs'.  'rmail-re-abbrevs' is still honored if it was
 already set.
+
++++
+*** New user options for formatting Rmail summary lines.
+'rmail-summary-sender-function' and 'rmail-summary-recipient-function'
+control how the sender/recipient fields are displayed in the summary.
+'rmail-summary-address-width' controls the width of that field.
 
 +++
 *** New user option 'rmail-mime-save-action'.
@@ -2585,6 +2597,11 @@ To allow for finer-grained adjustment of timeout for
 'python-eldoc-function', 'python-eldoc-function-timeout' now accepts
 floating-point numbers as well as integers.
 
+---
+*** The default value of 'python-shell-completion-setup-code' is changed.
+A new function is added to the setup code.  Users who modify this option
+may need to update the value for the Python shell completion to work.
+
 ** Tmm Menubar
 
 ---
@@ -2782,6 +2799,12 @@ To restore the old, more limited behavior for VC Directory, you can do
 *** New VC Directory bindings 'z d' and 'D' to delete Git stashes.
 These correspond to the existing 'z p' to pop a stash and 'P' to pop the
 stash at point (deleting the stash at point is also bound to 'C-k').
+
++++
+*** New VC Directory command 'V' ('vc-dir-root-next-action').
+This is like 'v' ('vc-next-action') but applies to the whole VC-Dir
+buffer, ignoring the position of point and any marks.  This is useful to
+check in all local changes at once.
 
 ---
 *** VC Directory can now register files when checking in mixed filesets.

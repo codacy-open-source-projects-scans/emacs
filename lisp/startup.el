@@ -2130,7 +2130,7 @@ a face or button specification."
                                (let ((browse-url-browser-function 'eww-browse-url))
                                  (browse-url "https://www.gnu.org/")))
 		     'follow-link t)
-	(insert "\n\n")))))
+	(insert "\n")))))
 
 (defun fancy-startup-tail (&optional concise)
   "Insert the tail part of the splash screen into the current buffer."
@@ -2141,7 +2141,7 @@ a face or button specification."
      :link `("Open a File"
 	     ,(lambda (_button) (call-interactively 'find-file))
 	     "Specify a new file's name, to edit the file")
-     "\t\t"
+     "\t"
      :link `("Open Home Directory"
 	     ,(lambda (_button) (dired "~"))
 	     "Open your home directory, to operate on its files")
@@ -2160,11 +2160,11 @@ a face or button specification."
    :face 'variable-pitch ".\n")
 
   (fancy-splash-insert
-   :face '(variable-pitch (:height 0.8))
-   "Enable "
-   :link `("newcomer-friendly"
+   :face 'variable-pitch
+   "New to Emacs?  Consider enabling "
+   :link `("newcomer presets"
 	   ,(lambda (_button) (info "(emacs) Newcomers Theme")))
-   " options:  ")
+   " by clicking this checkbox:  ")
 
   (let ((checked (create-image "checked.xpm"
 			       nil nil :ascent 'center))
