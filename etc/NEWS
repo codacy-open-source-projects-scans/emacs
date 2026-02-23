@@ -511,9 +511,9 @@ terminal.
 ---
 *** After deleting, 'delete-frame' now selects the most recently used frame.
 Previously, after deleting a specified frame, 'delete-frame' would
-select the next eligible frame in the order of the frame list.  This is
-often unrelated to frames' recent use and can appear somewhat random to
-users.
+select the oldest visible frame on the same terminal.  To revert to the
+old behavior, set the new user option
+'after-delete-frame-select-mru-frame' to nil.
 
 +++
 *** New value 'force' for user option 'frame-inhibit-implied-resize'.
@@ -1976,6 +1976,13 @@ search in the buffer contents.  If you customize it to t, those commands
 only search in input history.  If you customize it to the symbol 'dwim',
 those commands search in input history only when the point is after the
 last prompt.
+
+---
+*** Eshell 'alias' command now sorts the alias list.
+When adding an alias interactively, Eshell now sorts the list of aliases
+before saving the alias file.  This maintains the stability of the
+list of aliases to make the diff between versions more readable if you
+store your aliases in version control.
 
 ** Mail Utils
 
@@ -3486,6 +3493,20 @@ diary and display and mark their contents in the calendar without
 importing them to the diary file.  The library uses the new iCalendar
 library (see above) and makes diary import and export more customizable.
 
++++
+*** New commands to display more months in the calendar.
+'calendar-show-more-months' and 'calendar-show-fewer-months' display
+more or fewer months in the calendar, respectively.  The calendar shows
+at most 12 months and at least 3 months.
+
++++
+*** 'calendar-scroll-left-three-months' and its variants are obsolete aliases.
+Because the calendar can display more than three months now, commands
+'calendar-scroll-left-three-months' and
+'calendar-scroll-right-three-months' have been renamed to
+'calendar-scroll-calendar-left' and 'calendar-scroll-calendar-right'.
+The old names are kept as obsolete aliases.
+
 ** Calc
 
 *** New user option 'calc-string-maximum-character'.
@@ -3739,6 +3760,18 @@ all versions, sleep events require Windows 8 or later).
 
 
 * Incompatible Lisp Changes in Emacs 31.1
+
+---
+** 'FOO-ts-mode-indent-offset' renamed to 'FOO-ts-indent-offset'.
+When the new TS modes were introduced, a mistake was made where those
+modes used `FOO-mode-indent-offset` instead of the previous "standard"
+`FOO-indent-offset`.  The following names are the new names:
+'toml-ts-indent-offset', 'mhtml-ts-js-css-indent-offset',
+'html-ts-indent-offset', 'typescript-ts-indent-offset',
+'php-ts-indent-offset', 'php-ts-html-indent-offset',
+'json-ts-indent-offset', 'java-ts-indent-offset',
+'go-ts-indent-offset', 'csharp-ts-indent-offset',
+'cmake-ts-indent-offset', 'c-ts-indent-offset'.
 
 ** Files loaded from '-x' and '--script' now use lexical binding.
 If you don't have time to adapt your script's code to the lexical
