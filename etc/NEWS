@@ -3764,8 +3764,8 @@ all versions, sleep events require Windows 8 or later).
 ---
 ** 'FOO-ts-mode-indent-offset' renamed to 'FOO-ts-indent-offset'.
 When the new TS modes were introduced, a mistake was made where those
-modes used `FOO-mode-indent-offset` instead of the previous "standard"
-`FOO-indent-offset`.  The following names are the new names:
+modes used 'FOO-mode-indent-offset' instead of the previous conventional
+'FOO-indent-offset'.  The following names are the new names:
 'toml-ts-indent-offset', 'mhtml-ts-js-css-indent-offset',
 'html-ts-indent-offset', 'typescript-ts-indent-offset',
 'php-ts-indent-offset', 'php-ts-html-indent-offset',
@@ -3954,6 +3954,13 @@ that will provide an Xref backend when used.
 
 
 * Lisp Changes in Emacs 31.1
+
++++
+** 'secure-hash' now supports generating SHA-3 message digests.
+The list returned by 'secure-hash-algorithms' now contains the symbols
+'sha3-224', 'sha3-256', 'sha3-384', and 'sha3-512'.  These symbols can
+be used as the ALGORITHM argument of 'secure-hash' to generate SHA-3
+hashes.
 
 +++
 ** New function 'garbage-collect-heapsize'.
@@ -4312,6 +4319,10 @@ of an inherently asynchronous command such as 'compile'.
 ** Binary format specifications '%b' and '%B' added.
 These produce the binary representation of a number.
 '%#b' and '%#B' prefix the bits with '0b' and '0B', respectively.
+
+** 'pp-eval-expression' can now insert results into the current buffer
+With a prefix argument, 'pp-eval-expression' inserts the result into the
+current buffer, just like 'eval-expression' already did.
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
