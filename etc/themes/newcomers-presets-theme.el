@@ -38,9 +38,7 @@
     (prog-mode-hook . flyspell-prog-mode)
 
     (text-mode-hook . display-line-numbers-mode)
-    (text-mode-hook . flyspell-mode)
-
-    (after-save-hook . executable-make-buffer-file-executable-if-script-p))
+    (text-mode-hook . flyspell-mode))
   "Alist mapping hooks to functions.
 The functions are added to the corresponding hooks when enabling
 `newcomers-presets-mode', and removed when disabling the mode.")
@@ -150,8 +148,7 @@ This minor mode will enable and disable the theme on startup."
 
 ;;;; Frame and window-related options
  '(tab-bar-history-mode t)
-
- )
+ '(tab-bar-show 0))
 
 (provide-theme 'newcomers-presets)
 ;;; newcomers-presets-theme.el ends here
