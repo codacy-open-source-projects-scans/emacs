@@ -5075,17 +5075,19 @@ called from Lisp with optional argument OK-IF-ALREADY-EXISTS non-nil."
         (unless (memq state '(up-to-date edited added))
           (error "Please %s files before moving them"
 	         (if (stringp state) "check in" "update")))))
-    (let ((backend (if dirp
-                       (vc-responsible-backend old)
-                     (vc-backend old))))
-      ;; The rename commands for several VCS (at least Bzr, Git and
-      ;; Mercurial) will fail if asked to move a directory containing
-      ;; only untracked files.
-      (unless (and dirp
-                   (all (lambda (x)
-                          (memq (cadr x) '(ignored unregistered)))
-                        (vc-dir-status-files old (list old) backend)))
-        (vc-call-backend backend 'rename-file old new)))
+    ;; The rename commands for several VCS (at least Bzr, Git and
+    ;; Mercurial) will fail if asked to move a directory containing
+    ;; only untracked files.  So skip calling into the backend if OLD
+    ;; is a directory and we walk through the entirety of it without
+    ;; finding any VC-managed files.
+    (unless (and dirp
+                 (catch 'done
+                   (vc-file-tree-walk old (lambda (_) (throw 'done nil)))
+                   t))
+      (vc-call-backend (if dirp
+                           (vc-responsible-backend old)
+                         (vc-backend old))
+                       'rename-file old new))
     (vc-file-clearprops old)
     (vc-file-clearprops new)
     ;; Move the actual file (unless the backend did it already)
@@ -6055,13 +6057,11 @@ except that this command works only in file-visiting buffers."
 (defun vc-file-tree-walk (dirname func &rest args)
   "Walk recursively through DIRNAME.
 Invoke FUNC f ARGS on each VC-managed file f underneath it."
-  (vc-file-tree-walk-internal (expand-file-name dirname) func args)
-  (message "Traversing directory %s...done" dirname))
+  (vc-file-tree-walk-internal (expand-file-name dirname) func args))
 
 (defun vc-file-tree-walk-internal (file func args)
   (if (not (file-directory-p file))
-      (when (vc-backend file) (apply func file args))
-    (message "Traversing directory %s..." (abbreviate-file-name file))
+      (when (vc-registered file) (apply func file args))
     (let ((dir (file-name-as-directory file)))
       (mapcar
        (lambda (f) (or
