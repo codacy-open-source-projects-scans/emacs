@@ -604,6 +604,10 @@ This is useful when you define custom tab parameters that may need
 adjustment when a tab is restored, and avoids advice.
 
 ---
+*** Tabs are closed now on releasing the middle mouse button.
+Previously, closing the tab-bar's tabs was on pressing the button.
+
+---
 *** New user option 'tab-bar-define-keys'.
 This controls which key bindings tab-bar creates.  Values are t, the
 default, which defines all keys and is backwards compatible, 'numeric'
@@ -4248,6 +4252,13 @@ See "(ert) Helper Functions" node in the ERT manual for more information.
 Previously, 'ert-simulate-keys' could be used for sending keys to input
 functions such as 'read-from-minibuffer', but not for other interactive
 input such as starting key-mapped commands.
+
++++
+*** Show executed tests from erts files via the ERT results buffer.
+For tests that call 'ert-test-erts-file', the ERT results buffer now
+allows you to list the tests defined in the referenced erts files that
+have been executed by the test at point.  See "(ert) Running Tests
+Interactively" for more information.
 
 ** Time & Date
 
