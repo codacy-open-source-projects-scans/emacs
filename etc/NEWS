@@ -757,6 +757,13 @@ as in 'emacsclient --eval "(length (pop server-eval-args-left))" ""'.
 These are no longer discarded.
 
 +++
+** Emacs now uses the 'setrgbf' and 'setrgbb' terminfo capabilities.
+Emacs now uses 24-bit colors on terminals that support the 'setrgbf' and
+'setrgbb' user-defined terminfo capabilities.  These are supported by
+more terminals and applications than the old capabilities, 'setf24' and
+'setb24', which are now obsolete.
+
++++
 ** New user option 'xterm-update-cursor' to update cursor display on TTYs.
 When enabled, Emacs sends Xterm escape sequences on Xterm-compatible
 terminals to update the cursor's appearacse.  Emacs can update the
@@ -818,6 +825,12 @@ writing in the orthographies of the six languages simultaneously.
 ---
 *** New input methods for languages based on Burmese.
 These include: Burmese, Burmese (visual order), Shan, and Mon.
+
+---
+*** New language environment and input methods for Syriac languages.
+A new language environment for languages that use the Syriac script:
+Classical Syriac, Aramaic, and others.  Two new input methods for these
+languages: Syriac and Syriac (phonetic).
 
 ---
 ** 'visual-wrap-prefix-mode' now supports variable-pitch fonts.
