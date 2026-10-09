@@ -271,14 +271,14 @@ the choices can get pretty complex."
                                  :tag "Mac OS internet Keychain"
                                  (const :format ""
                                         :value :macos-keychain-internet)
-                                 (choice :tag "Collection to use"
+                                 (choice :tag "Keychain to use"
                                          (string :tag "internet Keychain path")
                                          (const :tag "default" default)))
                                 (list
                                  :tag "Mac OS generic Keychain"
                                  (const :format ""
                                         :value :macos-keychain-generic)
-                                 (choice :tag "Collection to use"
+                                 (choice :tag "Keychain to use"
                                          (string :tag "generic Keychain path")
                                          (const :tag "default" default))))
                         (repeat :tag "Extra Parameters" :inline t
@@ -361,13 +361,18 @@ soon as a function returns non-nil.")
 (defun auth-source-backend-parse (entry)
   "Create an `auth-source-backend' from an ENTRY in `auth-sources'."
 
-  (let ((backend
-         (run-hook-with-args-until-success 'auth-source-backend-parser-functions
-                                           entry)))
+  (let* ((backend
+          (run-hook-wrapped
+           'auth-source-backend-parser-functions
+           (lambda (fun entry)
+             (when-let* ((result (funcall fun entry))
+                         (_ (not (eq (slot-value result 'type) 'ignore))))
+               result))
+           entry)))
 
     (unless backend
       ;; none of the parsers worked
-      (auth-source-do-warn
+      (auth-source-do-debug
        "auth-source-backend-parse: invalid backend spec: %S" entry)
       (setq backend (make-instance 'auth-source-backend
                                    :source ""
@@ -378,12 +383,12 @@ soon as a function returns non-nil.")
   "List of usable backends from `auth-sources'.
 Filter out backends with type `ignore'.
 A fallback backend is added to ensure, that at least `read-passwd' is called."
-  `(or (seq-keep
+  `(or (seq-uniq (seq-keep
         (lambda (entry)
           (and-let* ((backend (auth-source-backend-parse entry))
                      ((not (eq (slot-value backend 'type) 'ignore)))
                      backend)))
-        auth-sources)
+        auth-sources))
        ;; Fallback.
        (list (auth-source-backend
               :source ""
@@ -488,9 +493,11 @@ Supported backend types are `netrc', `plstore' and `json'."
                            ,(match-string 1 entry)))))
   ;; take 'macos-keychain-internet or generic and use it as a Mac OS
   ;; Keychain collection matching any user, host, and protocol
-  (when (eq entry 'macos-keychain-internet)
+  (when (or (eq entry 'macos-keychain-internet)
+            (and (stringp entry) (string= entry "macos-keychain-internet")))
     (setq entry '(:source (:macos-keychain-internet default))))
-  (when (eq entry 'macos-keychain-generic)
+  (when (or (eq entry 'macos-keychain-generic)
+            (and (stringp entry) (string= entry "macos-keychain-generic")))
     (setq entry '(:source (:macos-keychain-generic default))))
   (cond
    ;; the macOS Keychain
@@ -2075,13 +2082,13 @@ Here's an example that looks for the first item in the default
 generic macOS Keychain:
 
  (let ((auth-sources \\='(macos-keychain-generic)))
-    (auth-source-search :max 1)
+    (auth-source-search :max 1))
 
 Here's another that looks for the first item in the internet
 macOS Keychain collection whose label is `gnus':
 
  (let ((auth-sources \\='(macos-keychain-internet)))
-    (auth-source-search :max 1 :label \"gnus\")
+    (auth-source-search :max 1 :label \"gnus\"))
 
 And this one looks for the first item in the internet keychain
 entries for git.gnus.org:
@@ -2155,9 +2162,9 @@ entries for git.gnus.org:
                      collect var))
      'utf-8)))
 
-(cl-defun auth-source-macos-keychain-search-items (coll _type _max
+(cl-defun auth-source-macos-keychain-search-items (coll type _max
                                                         host port user
-                                                   &key label type
+                                                   &key label
                                                    &allow-other-keys)
   (let* ((keychain-generic (eq type 'macos-keychain-generic))
          (args `(,(if keychain-generic
@@ -2602,14 +2609,14 @@ point is moved into the passwords (see `authinfo-hide-elements').
 (defvar read-passwd--mode-line-icon nil
   "Propertized mode line icon for showing/hiding passwords.")
 
-(defvar read-passwd--hide-password t
-  "Toggle whether password should be hidden in minibuffer.")
+(defvar read-passwd--password-hidden nil
+  "Flag indicating whether password in minibuffer is hidden.")
 
 (defun read-passwd--hide-password ()
   "Make password in minibuffer hidden or visible."
   (let ((beg (minibuffer-prompt-end)))
     (dotimes (i (1+ (- (buffer-size) beg)))
-      (if read-passwd--hide-password
+      (if read-passwd--password-hidden
           (put-text-property
            (+ i beg) (+ 1 i beg) 'display (string (or read-hide-char ?*)))
         (remove-list-of-text-properties (+ i beg) (+ 1 i beg) '(display)))
@@ -2617,9 +2624,10 @@ point is moved into the passwords (see `authinfo-hide-elements').
        (+ i beg) (+ 1 i beg)
        'help-echo "C-u: Clear password\nTAB: Toggle password visibility"))))
 
-(defun read-passwd-toggle-visibility ()
+(defun read-passwd-toggle-visibility (&optional force)
   "Toggle minibuffer contents visibility.
-Adapt also mode line."
+Adapt also mode line.  If optional FORCE is non-nil, hide the minibuffer
+contents."
   (interactive)
   (let ((win (active-minibuffer-window)))
     (unless win (error "No active minibuffer"))
@@ -2627,12 +2635,13 @@ Adapt also mode line."
     ;; mini-buffer.
     (with-current-buffer (window-buffer win)
       (when (memq 'read-passwd-mode local-minor-modes)
-        (setq read-passwd--hide-password (not read-passwd--hide-password))
+        (setq read-passwd--password-hidden
+              (or force (not read-passwd--password-hidden)))
         (setq read-passwd--mode-line-icon
               `(:propertize
                 ,(if icon-preference
                      (icon-string
-                      (if read-passwd--hide-password
+                      (if read-passwd--password-hidden
                           'read-passwd--show-password-icon
                         'read-passwd--hide-password-icon))
                    "")
@@ -2652,6 +2661,9 @@ Adapt also mode line."
   "C-u" #'delete-minibuffer-contents ;bug#12570
   "TAB" #'read-passwd-toggle-visibility)
 
+(defvar read-passwd--mini-buffers nil
+  "List of minibuffers where `read-passwd' is active.")
+
 (define-minor-mode read-passwd-mode
   "Toggle visibility of password in minibuffer."
   :group 'mode-line
@@ -2659,21 +2671,25 @@ Adapt also mode line."
   :keymap read-passwd-map
   :version "30.1"
 
-  (setq read-passwd--hide-password nil)
-  (or global-mode-string (setq global-mode-string '("")))
-
-  (let ((mode-string '(:eval read-passwd--mode-line-icon)))
-    (if read-passwd-mode
-        ;; Add `read-passwd--mode-line-icon'.
-        (or (member mode-string global-mode-string)
-            (setq global-mode-string
-	          (append global-mode-string (list mode-string))))
-      ;; Remove `read-passwd--mode-line-icon'.
-      (setq global-mode-string
-	    (delete mode-string global-mode-string))))
-
+  (unless read-passwd-mode
+    (setq read-passwd--mini-buffers
+          (delq (current-buffer) read-passwd--mini-buffers)))
+  (unless read-passwd--mini-buffers
+    (let ((mode-string '(:eval read-passwd--mode-line-icon)))
+      (if read-passwd-mode
+          ;; Add `read-passwd--mode-line-icon'.
+          (or (member mode-string global-mode-string)
+              (setq global-mode-string
+	            (append global-mode-string (list mode-string))))
+        ;; Remove `read-passwd--mode-line-icon'.
+        (setq global-mode-string
+	      (delete mode-string global-mode-string)))))
   (when read-passwd-mode
-    (read-passwd-toggle-visibility)))
+    (push (current-buffer) read-passwd--mini-buffers))
+  ;; Always hide the current password.
+  (when read-passwd--mini-buffers
+    (with-current-buffer (car read-passwd--mini-buffers)
+      (read-passwd-toggle-visibility t))))
 
 (defvar overriding-text-conversion-style)
 

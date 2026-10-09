@@ -197,7 +197,7 @@ The name is made by appending a number to PREFIX, default \"T\"."
   '(([&rest cl-lambda-arg]
     [&optional ["&optional" cl-&optional-arg &rest cl-&optional-arg]]
     [&optional ["&rest" cl-lambda-arg]]
-    [&optional ["&key" [cl-&key-arg &rest cl-&key-arg]
+    [&optional ["&key" [&optional cl-&key-arg &rest cl-&key-arg]
 		&optional "&allow-other-keys"]]
     [&optional ["&aux" &rest
 		&or (cl-lambda-arg &optional def-form) arg]]
@@ -217,8 +217,8 @@ The name is made by appending a number to PREFIX, default \"T\"."
      [&rest cl-lambda-arg]
      [&optional ["&optional" cl-&optional-arg &rest cl-&optional-arg]]
      [&optional ["&rest" cl-lambda-arg]]
-     [&optional ["&key" cl-&key-arg &rest cl-&key-arg
-                 &optional "&allow-other-keys"]]
+     [&optional ["&key" [&optional cl-&key-arg &rest cl-&key-arg]
+		 &optional "&allow-other-keys"]]
      [&optional ["&aux" &rest
                  &or (cl-lambda-arg &optional def-form) arg]]
      . [&or arg nil])))
@@ -694,8 +694,10 @@ its argument list allows full Common Lisp conventions."
                                (setq ,var nil))
                               (t
                                (error
-                                ,(format "Keyword argument %%S not one of %S"
-                                         keys)
+                                ,(format "Keyword argument %%S not one of %s"
+                                         ;; Escape % in slot names.
+                                         (string-replace "%" "%%"
+                                                         (format "%S" keys)))
                                 (car ,var)))))))
 	      (push `(let ((,var ,restarg)) ,check) cl--bind-forms)))))
       (cl--do-&aux args)
@@ -3293,8 +3295,9 @@ To see the documentation for a defined struct type, use
               ;; the parent's accessor?
 	      (push `(define-inline ,accessor (x)
                        ,(let ((long-docstring
-                               (format "Access slot \"%s\" of `%s' struct X."
-                                       slot name)))
+                               (internal--format-docstring-line
+                                "Access slot \"%s\" of `%s' struct X."
+                                slot name)))
                           (concat
                            ;; NB.  This will produce incorrect results
                            ;; in some cases, as our coding conventions
@@ -3315,7 +3318,7 @@ To see the documentation for a defined struct type, use
                                 "\n"
                                 (internal--format-docstring-line
                                  "Struct X is a `%s'." name))
-                             (internal--format-docstring-line long-docstring))
+                             long-docstring)
                            (if doc (concat "\n" doc) "")
                            "\n"
                            (format "\n\n(fn %s X)" accessor)))

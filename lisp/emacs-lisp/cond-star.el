@@ -48,8 +48,6 @@
 
 ;;; Code:
 
-(require 'cl-lib) ; for cl-assert
-
 ;;;###autoload
 (defmacro cond* (&rest clauses)
   "Extended form of traditional Lisp `cond' construct.
@@ -337,10 +335,13 @@ This is used for conditional exit clauses."
           ((eq pat-type 'bind-and*)
            (let ((checks '()) (last t))
              (dolist (bind (cdr condition))
-               (push (list (car bind) (list 'and last (cadr bind)))
-                     checks)
-               (when (eq (caar checks) '_)
-                 (setcar (car checks) (make-symbol "s")))
+               (if (symbolp bind)
+                   (push (list (make-symbol "s") (list 'and last bind))
+                         checks)
+                 (push (list (car bind) (list 'and last (cadr bind)))
+                       checks)
+                 (when (eq (caar checks) '_)
+                   (setcar (car checks) (make-symbol "s"))))
                (setq last (caar checks)))
              (cond
               ;; For explanations on these cases, see "Ordinary
@@ -370,12 +371,13 @@ This is used for conditional exit clauses."
                    ;; where ELSE is supposed to run after THEN also (and
                    ;; with access to `x' and `y').
                    (error ":non-exit not supported with `pcase*'"))
-                 (cl-assert (or (null iffalse) rest))
+                 (unless (or (null iffalse) rest)
+                   (error "Assertion failed: (or (null iffalse) rest)"))
                  `(pcase ,(nth 2 condition)
                     (,(nth 1 condition) ,@true-exps)
                     (_ ,iffalse)))
-             (cl-assert (null iffalse))
-             (cl-assert (null rest))
+             (unless (and (null iffalse) (null rest))
+               (error "Assertion failed: (and (null iffalse) (null rest))"))
              `(pcase-let ((,(nth 1 condition) ,(nth 2 condition)))
                 (cond* . ,uncondit-clauses))))
           ((eq pat-type 'match*)
@@ -665,7 +667,7 @@ whether SUBPAT (as well as the subpatterns that contain/precede it) matches,"
            (dolist (elt elts)
              (let* ((result
                      (cond*-subpat elt cdr-ignore bindings inside-or
-                                   backtrack-aliases `(aref ,i ,data))))
+                                   backtrack-aliases `(aref ,data ,i))))
                (setq i (1+ i))
                (setq bindings (car result))
                (push (cdr result) expressions)))

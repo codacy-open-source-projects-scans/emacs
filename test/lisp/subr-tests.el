@@ -1275,8 +1275,10 @@ final or penultimate step during initialization."))
   (should (equal (kbd "C-x ( C-d C-x )") "\^D"))
   (should (equal (kbd "C-x ( C-x )") "")))
 
-(defvar subr-test--global)
 (ert-deftest test-local-set-state ()
+  (defvar subr-test--global)
+  (defvar subr-test--local)
+  (defvar subr-test--unexist)
   (setq subr-test--global 1)
   (with-temp-buffer
     (setq-local subr-test--local 2)
@@ -1772,6 +1774,25 @@ The argument names are important."
     (should (equal (multiple-command-partition-arguments "cmd"
                                                          '("foo" "bar" "bazzzzzz"))
                    '(("foo" "bar") ("bazzzzzz"))))))
+
+(ert-deftest subr-test-combine-change-calls-error ()
+  "Test detection of unexpected changes in `combine-change-calls'."
+  (with-temp-buffer
+    (insert "a\nb\nc\n")
+    (combine-change-calls 3 5
+      (goto-char (point-min))
+      (search-forward "b")
+      (replace-match "bbb"))
+    (should-error
+     (combine-change-calls 3 7
+      (goto-char (point-min))
+      (search-forward "a")
+      (replace-match "aaa")))
+    (should-error
+     (combine-change-calls 5 9
+      (goto-char (point-min))
+      (search-forward "c")
+      (replace-match "ccc")))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here

@@ -9,7 +9,7 @@
 ;; URL: https://orgmode.org
 ;; Package-Requires: ((emacs "28.2"))
 
-;; Version: 9.8.3
+;; Version: 9.8.10
 
 ;; This file is part of GNU Emacs.
 ;;
@@ -2054,7 +2054,7 @@ are followed by a letter in parenthesis, like TODO(t)."
 
 (defcustom org-provide-todo-statistics t
   "Non-nil means update todo statistics after insert and toggle.
-ALL-HEADLINES means update todo statistics by including headlines
+`all-headlines' means update todo statistics by including headlines
 with no TODO keyword as well, counting them as not done.
 A list of TODO keywords means the same, but skip keywords that are
 not in this list.
@@ -5221,13 +5221,22 @@ The following commands are available:
   ;; source blocks).
   (setq-local parse-sexp-lookup-properties t)
   ;; Beginning/end of defun
-  (setq-local beginning-of-defun-function 'org-backward-element)
+  (setq-local beginning-of-defun-function
+              (lambda ()
+                (condition-case _
+                    (org-backward-element)
+                  ;; Already at the beginning.
+                  (user-error t))))
   (setq-local end-of-defun-function
 	      (lambda ()
-		(if (not (org-at-heading-p))
-		    (org-forward-element)
-		  (org-forward-element)
-		  (forward-char -1))))
+                (condition-case _
+		    (if (not (org-at-heading-p))
+		        (org-forward-element)
+		      (org-forward-element)
+		      (forward-char -1))
+                  ;; At the last element. Move to eob.
+                  (user-error
+                   (goto-char (point-max))))))
   ;; Next error for sparse trees
   (setq-local next-error-function 'org-occur-next-match)
   ;; Make commit log messages from Org documents easier.
@@ -9551,6 +9560,7 @@ When foo is written as FOO, upcase the #+BEGIN/END as well."
 	  (goto-char region-end)
 	  ;; Ignore empty lines at the end of the region.
 	  (skip-chars-backward " \r\t\n")
+	  (unless (eolp) (insert "\n") (forward-line -1))
 	  (end-of-line))
 	(unless (bolp) (insert "\n"))
 	(indent-to column)
@@ -9877,7 +9887,8 @@ When called through Elisp, arg is also interpreted in the following way:
 	      (org-update-parent-todo-statistics))
 	    (when (bound-and-true-p org-clock-out-when-done)
 	      (org-clock-out-if-current))
-	    (run-hooks 'org-after-todo-state-change-hook)
+            (save-excursion
+	      (run-hooks 'org-after-todo-state-change-hook))
 	    (when (and arg (not (member org-state org-done-keywords)))
 	      (setq head (org-get-todo-sequence-head org-state)))
             (put-text-property (line-beginning-position)
@@ -10583,7 +10594,8 @@ enough to shift date past today.  Continue? "
 		  (org-timestamp-change n (cdr (assoc what whata)) nil t))
 		(setq msg
 		      (concat msg type " " org-last-changed-timestamp " ")))))))
-      (run-hooks 'org-todo-repeat-hook)
+      (save-excursion
+        (run-hooks 'org-todo-repeat-hook))
       (setq org-log-post-message msg)
       (message msg))))
 

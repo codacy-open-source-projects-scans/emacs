@@ -109,6 +109,7 @@
 #include <limits.h>
 #include <locale.h>
 #include <stdckdint.h>
+#include <stdcountof.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -1640,11 +1641,18 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
           subwidth = -1;
         subformat_width:
           {
+            /* Restrict flag propagation to %F and %Y so that we get glibc
+               consistent behavior for %D with glibc specific '_' and '-' flags.
+               Note the year is at the start of %F so OK to propagate there.  */
+            enum pad_style subpad =
+              (format_char == L_('F') || format_char == L_('Y')
+               ? pad : yr_spec);
+
             retval_t len =
               __strftime_internal (NULL, STRFTIME_ARG ((size_t) -1)
                                    subfmt, tp,
                                    CAL_ARGS (cal, caldate)
-                                   to_uppcase, pad, subwidth,
+                                   to_uppcase, subpad, subwidth,
                                    tzset_called
                                    extra_args LOCALE_ARG);
             if (FAILURE < 0 && len < 0)
@@ -1653,7 +1661,7 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
                                            STRFTIME_ARG (maxsize - i)
                                            subfmt, tp,
                                            CAL_ARGS (cal, caldate)
-                                           to_uppcase, pad, subwidth,
+                                           to_uppcase, subpad, subwidth,
                                            tzset_called
                                            extra_args LOCALE_ARG));
           }
@@ -1882,7 +1890,7 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
 #endif
             }
 
-          bufp = buf + sizeof (buf) / sizeof (buf[0]);
+          bufp = buf + countof (buf);
 
           if (negative_number)
             u_number_value = - u_number_value;
@@ -1913,7 +1921,7 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
             CHAR_T sign_char = (negative_number ? L_('-')
                                 : always_output_a_sign ? L_('+')
                                 : 0);
-            int number_bytes = buf + sizeof buf / sizeof buf[0] - bufp;
+            int number_bytes = buf + countof (buf) - bufp;
             int number_digits = number_bytes;
 #if SUPPORT_NON_GREG_CALENDARS_IN_STRFTIME
             if (digits_base >= 0x100)
@@ -2098,7 +2106,7 @@ __strftime_internal (STREAM_OR_CHAR_T *s, STRFTIME_ARG (size_t maxsize)
             /* Generate string value for T using time_t arithmetic;
                this works even if sizeof (long) < sizeof (time_t).  */
 
-            bufp = buf + sizeof (buf) / sizeof (buf[0]);
+            bufp = buf + countof (buf);
             negative_number = t < 0;
 
             do

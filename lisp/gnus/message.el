@@ -2217,6 +2217,8 @@ see `message-narrow-to-headers-or-head'."
   (beginning-of-line)
   (while (looking-at "[ \t]")
     (forward-line -1))
+  ;; `syntax-propertize' can't widen so make sure it won't need to (bug#81035).
+  (syntax-propertize (point))
   (narrow-to-region
    (point)
    (progn
@@ -4401,6 +4403,9 @@ a non-nil value when called in the message buffer without any
 arguments.  If METHOD is nil in this case, the return value of
 the function will be inserted instead.
 
+For an explanation of the \"X-Message-SMTP-Method\" header, see
+Info node `(message) Mail Variables'.
+
 Note: if the buffer already has a \"X-Message-SMTP-Method\"
 header, these rules are ignored, and the header is left
 unchanged."
@@ -4759,10 +4764,11 @@ Valid types are `send', `return', `exit', `kill' and `postpone'."
 	   (delq action (symbol-value var))))))
 
 (defun message-do-actions (actions)
+  ;; FIXME: Replace it with `run-hooks'?
   "Perform all actions in ACTIONS."
   ;; Now perform actions on successful sending.
   (dolist (action actions)
-    (ignore-errors
+    (with-demoted-errors "message-do-actions: %S"
       (cond
        ;; A simple function.
        ((functionp action)
@@ -5054,13 +5060,19 @@ that instead."
                (smtpmail-smtp-server (nth 1 method))
                (service (nth 2 method))
                (port (string-to-number service))
-               ;; If we're talking to the TLS SMTP port, then force a
-               ;; TLS connection.
-               (smtpmail-stream-type (if (= port 465)
-                                         'tls
-                                       smtpmail-stream-type))
                (smtpmail-smtp-service (if (> port 0) port service))
-               (smtpmail-smtp-user (or (nth 3 method) smtpmail-smtp-user)))
+               (smtpmail-smtp-user (or (nth 3 method) smtpmail-smtp-user))
+               (stream-type (nth 4 method))
+               (smtpmail-stream-type
+                (cond ((member stream-type '("nil" "starttls" "plain" "tls"))
+                       (intern stream-type))
+                      (stream-type
+                       (user-error "Invalid stream type: %s" stream-type))
+                      ;; If the user didn't say anything and we're
+                      ;; talking to the TLS SMTP port, then force a TLS
+                      ;; connection.
+                      ((= port 465) 'tls)
+                      (t smtpmail-stream-type))))
           (message-smtpmail-send-it)))
        (send-function
         (funcall send-function))
@@ -8649,6 +8661,9 @@ From headers in the original article."
                   (save-excursion
                     (goto-char end-of-headers)
                     (insert-before-markers header))))))))
+      ;; `syntax-propertize' can't widen so make sure it won't need to
+      ;; (bug#81035).
+      (syntax-propertize end-of-headers)
       (narrow-to-region end-of-headers (point-max)))))
 
 (defun message-hide-header-p (regexps)
@@ -8988,9 +9003,14 @@ used to take the screenshot."
 	    pairs (cdr pairs))
       (if (not (string-match "=" cur))
 	  nil                           ; Grace
-	(setq key (downcase (gnus-url-unhex-string
-			     (substring cur 0 (match-beginning 0))))
-	      val (gnus-url-unhex-string (substring cur (match-end 0) nil) t))
+        ;; RFC 6068 mandates that mailto: URLs must be UTF-8 encoded.
+	(setq key (downcase
+                   (decode-coding-string
+                    (url-unhex-string (substring cur 0 (match-beginning 0)))
+                    'utf-8-unix))
+	      val (decode-coding-string
+                   (url-unhex-string (substring cur (match-end 0) nil) t)
+                   'utf-8))
 	(setq cur (assoc key retval))
 	(if cur
 	    (setcdr cur (cons val (cdr cur)))

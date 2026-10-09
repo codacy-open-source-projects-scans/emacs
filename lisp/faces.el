@@ -48,7 +48,8 @@ the terminal-initialization file to be loaded."
     ("vt420" . "vt200")
     ("alacritty" . "xterm")
     ("foot" . "xterm")
-    ("contour" . "xterm"))
+    ("contour" . "xterm")
+    ("xterm-ghostty" . "ghostty"))
   "Alist of terminal type aliases.
 Entries are of the form (TYPE . ALIAS), where both elements are strings.
 This means to treat a terminal of type TYPE as if it were of type ALIAS."
@@ -2827,6 +2828,12 @@ Use the face `mode-line-highlight' for features that can be selected."
   :version "28.1"
   :group 'basic-faces)
 
+(defface header-line-emphasis '((t :inherit mode-line-emphasis))
+  "Face used to emphasize certain header line features.
+Use the face `header-line-highlight' for features that can be selected."
+  :version "32.1"
+  :group 'basic-faces)
+
 (defface header-line-active
   '((t :inherit header-line))
   "Face for the selected header line.
@@ -2912,6 +2919,13 @@ used to display the prompt text."
 
 (setq minibuffer-prompt-properties
       (append minibuffer-prompt-properties (list 'face 'minibuffer-prompt)))
+
+(defface margin
+  '((t :inherit default))
+  "Basic face for window margins (both left and right).
+This face is used to customize the appearance of the margin areas."
+  :version "31.1"
+  :group 'basic-faces)
 
 (defface fringe
   '((((class color) (background light))

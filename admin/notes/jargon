@@ -48,12 +48,14 @@ DTRT     - do the right thing
 DWIM     - do what I mean
 ENOPATCH - no patch is attached
 FTR      - for the record
+FUD      - fear, uncertainty and doubt
 FWIW     - for what it's worth
 FYI      - for your information
 GNU      - GNU is not Unix
 HTH      - hope this helps
 IANAL    - I am not a lawyer
 ICYMI    - in case you missed it
+IDK      - I don't know
 IIRC     - if I recall correctly
 IIUC     - if I understand correctly
 IMHO     - in my humble opinion
@@ -62,6 +64,7 @@ IMO      - in my opinion
 IOW      - in other words
 LGTM     - looks good to me
 LMK      - let me know
+MRE      - minimal reproducible example
 OOO      - out of office
 OOTB     - out of the box
 OTOH     - on the other hand
@@ -73,6 +76,7 @@ TIA      - thanks in advance
 TIL      - today I learned
 TL;DR    - too long; didn't read
 TRT      - the right thing
+TTTT     - to tell the truth
 WFM      - works for me
 WIP      - work in progress
 WRT      - with respect to

@@ -6,6 +6,7 @@
 ;; Created: October 2024
 ;; Keywords: calendar
 ;; Human-Keywords: calendar, iCalendar
+;; Package: icalendar
 
 ;; This file is part of GNU Emacs.
 
@@ -66,7 +67,7 @@
 
 ;; Constructing nodes with these macros automatically validates them
 ;; with the function `icalendar-ast-node-valid-p', which signals an
-;; `icalendar-validation-error' if the node is not valid acccording to
+;; `icalendar-validation-error' if the node is not valid according to
 ;; RFC5545.
 
 
@@ -568,10 +569,15 @@ The resulting syntax node is checked for validity by
   ;; Add templates for required properties automatically if we can:
   (when (memq type '(ical:vevent ical:vtodo ical:vjournal ical:vfreebusy))
     (unless (assq 'ical:dtstamp templates)
-      (push '(ical:dtstamp (decode-time nil t))
-            templates))
+      (push
+       '(icalendar-make-property icalendar-dtstamp
+            (let ((stamp (decode-time nil t)))
+              ;; Ensure we return UTC, not just :zone 0:
+              (setf (decoded-time-zone stamp) t)
+              stamp))
+       templates))
     (unless (assq 'ical:uid templates)
-      (push `(ical:uid ,(ical:make-uid templates))
+      (push '(ical:uid (ical:make-uid))
             templates)))
   (when (eq type 'ical:vcalendar)
     (unless (assq 'ical:prodid templates)
@@ -639,7 +645,7 @@ the following forms:
   or any other expression that evaluates to a parameter node.
 
 \(COMPONENT-TYPE CHILD [CHILD ...]) - constructs a component node of
-  COMPONENT-TYPE with CHILDs as child nodes.  Each CHILD should either be
+  COMPONENT-TYPE with given child nodes.  Each CHILD should either be
   a template for a property (as above), a template for a
   sub-component (of the same form), or any other expression that
   evaluates to an iCalendar syntax node.
@@ -651,7 +657,6 @@ added to the component or property node.
 For example, an iCalendar VEVENT could be written like this:
 
   (icalendar-make-node-from-templates icalendar-vevent
-    (icalendar-dtstamp (decode-time (current-time) 0))
     (icalendar-uid \"some-unique-id\")
     (icalendar-summary \"Party\")
     (icalendar-location \"Robot House\")

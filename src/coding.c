@@ -159,6 +159,9 @@ detect_coding_XXX (struct coding_system *coding,
   const unsigned char *src = coding->source;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
+  /* Some encodings do not need this variable, however it is incremented in the
+     ONE_MORE_BYTE macro.  In that case mark it with MAYBE_UNUSED to silence
+     compiler warnings.  */
   ptrdiff_t consumed_chars = 0;
   int found = 0;
   ...;
@@ -652,11 +655,6 @@ growable_destination (struct coding_system *coding)
     consumed_chars++;					\
   } while (0)
 
-/* Suppress clang warnings about consumed_chars never being used.
-   Although correct, the warnings are too much trouble to code around.  */
-#if 13 <= __clang_major__ - defined __apple_build_version__
-# pragma clang diagnostic ignored "-Wunused-but-set-variable"
-#endif
 
 /* Safely get two bytes from the source text pointed by SRC which ends
    at SRC_END, and set C1 and C2 to those bytes while skipping the
@@ -1135,7 +1133,7 @@ detect_coding_utf_8 (struct coding_system *coding,
   const unsigned char *src = coding->source, *src_base;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   bool bom_found = 0;
   ptrdiff_t nchars = coding->head_ascii;
 
@@ -1536,11 +1534,9 @@ detect_coding_utf_16 (struct coding_system *coding,
     {
       /* We check the dispersion of Eth and Oth bytes where E is even and
 	 O is odd.  If both are high, we assume binary data.*/
-      unsigned char e[256], o[256];
+      unsigned char e[256] = {0}, o[256] = {0};
       unsigned e_num = 1, o_num = 1;
 
-      memset (e, 0, 256);
-      memset (o, 0, 256);
       e[c1] = 1;
       o[c2] = 1;
 
@@ -1843,7 +1839,7 @@ detect_coding_emacs_mule (struct coding_system *coding,
   const unsigned char *src = coding->source, *src_base;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   int c;
   int found = 0;
 
@@ -2933,7 +2929,7 @@ detect_coding_iso_2022 (struct coding_system *coding,
   bool single_shifting = 0;
   int id;
   int c, c1;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   int i;
   int rejected = 0;
   int found = 0;
@@ -4321,7 +4317,7 @@ encode_designation_at_bol (struct coding_system *coding,
   /* Table of charsets to be designated to each graphic register.  */
   int r[4];
   int c, found = 0, reg;
-  ptrdiff_t produced_chars = 0;
+  MAYBE_UNUSED ptrdiff_t produced_chars = 0;
   bool multibytep = coding->dst_multibyte;
   Lisp_Object attrs;
   Lisp_Object charset_list;
@@ -4583,7 +4579,7 @@ detect_coding_sjis (struct coding_system *coding,
   const unsigned char *src = coding->source, *src_base;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   int found = 0;
   int c;
   Lisp_Object attrs, charset_list;
@@ -4638,7 +4634,7 @@ detect_coding_big5 (struct coding_system *coding,
   const unsigned char *src = coding->source, *src_base;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   int found = 0;
   int c;
 
@@ -5076,7 +5072,7 @@ detect_coding_ccl (struct coding_system *coding,
   const unsigned char *src = coding->source, *src_base;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   int found = 0;
   unsigned char *valids;
   ptrdiff_t head_ascii = coding->head_ascii;
@@ -5371,7 +5367,7 @@ detect_coding_charset (struct coding_system *coding,
   const unsigned char *src = coding->source, *src_base;
   const unsigned char *src_end = coding->source + coding->src_bytes;
   bool multibytep = coding->src_multibyte;
-  ptrdiff_t consumed_chars = 0;
+  MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
   Lisp_Object attrs, valids, name;
   int found = 0;
   ptrdiff_t head_ascii = coding->head_ascii;
@@ -7047,7 +7043,7 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 		  ptrdiff_t dst_size;
 		  if (ckd_mul (&dst_size, to_nchars, MAX_MULTIBYTE_LENGTH)
 		      || ckd_add (&dst_size, dst_size, buf_end - buf))
-		    memory_full (SIZE_MAX);
+		    memory_full_up ();
 		  dst = alloc_destination (coding, dst_size, dst);
 		  if (EQ (coding->src_object, coding->dst_object)
 		      /* Input and output are not C buffers, which are safe to
@@ -7100,7 +7096,7 @@ produce_chars (struct coding_system *coding, Lisp_Object translation_table,
 	  if (coding->src_multibyte)
 	    {
 	      bool multibytep = 1;
-	      ptrdiff_t consumed_chars = 0;
+	      MAYBE_UNUSED ptrdiff_t consumed_chars = 0;
 
 	      while (1)
 		{
@@ -8558,19 +8554,17 @@ from_unicode_buffer (const wchar_t *wstr)
      strings are extended to 32-bit wchar_t.  */
 
   uint16_t *words;
-  size_t length, i;
-
-  length = wcslen (wstr) + 1;
+  ptrdiff_t length = wcslen (wstr);
 
   USE_SAFE_ALLOCA;
-  SAFE_NALLOCA (words, sizeof *words, length);
+  SAFE_NALLOCA (words, sizeof *words, length + 1);
 
-  for (i = 0; i < length - 1; ++i)
+  for (ptrdiff_t i = 0; i < length; i++)
     words[i] = wstr[i];
+  words[length] = '\0';
 
-  words[i] = '\0';
   AUTO_STRING_WITH_LEN (str, (char *) words,
-			(length - 1) * sizeof *words);
+			length * sizeof *words);
   return unbind_to (sa_count, from_unicode (str));
 #endif
 }
@@ -10888,10 +10882,8 @@ usage: (set-coding-system-priority &rest coding-systems)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
 {
   ptrdiff_t i, j;
-  bool changed[coding_category_max];
+  bool changed[coding_category_max] = {0};
   enum coding_category priorities[coding_category_max];
-
-  memset (changed, 0, sizeof changed);
 
   for (i = j = 0; i < nargs; i++)
     {

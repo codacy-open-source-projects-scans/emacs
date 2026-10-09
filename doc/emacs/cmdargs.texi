@@ -260,9 +260,14 @@ on.  To invoke a Lisp program, use the @samp{-batch} option in
 conjunction with one or more of @samp{-l}, @samp{-f} or @samp{--eval}
 (@pxref{Action Arguments}).  @xref{Command Example}, for an example.
 
+@vindex kill-emacs-on-sigint
 In batch mode, Emacs does not display the text being edited, and the
 standard terminal interrupt characters such as @kbd{C-z} and @kbd{C-c}
-have their usual effect.  Emacs functions that normally print a
+have their usual effect: for @kbd{C-c} that effect is either to
+exit Emacs or to signal @code{quit}, depending on the variable
+@code{kill-emacs-on-sigint}.
+
+Emacs functions that normally print a
 message in the echo area will print to either the standard output
 stream (@code{stdout}) or the standard error stream (@code{stderr})
 instead.  (To be precise, functions like @code{prin1}, @code{princ}
@@ -408,6 +413,21 @@ you do, you will need to specify the same @var{name} when you invoke
 about using Emacs as a daemon.  A ``background'' daemon disconnects
 from the terminal and runs in the background (@samp{--daemon} is an
 alias for @samp{--bg-daemon}).
+
+@vindex server-after-make-frame-hook
+@cindex customizations don't work in daemon sessions
+If you have in your init file (@pxref{Init File}) customizations that
+need various capabilities available only on graphic displays, or
+activate there optional features which need such capabilities, like
+colors, mouse, fonts, etc., such customizations might not work when you
+start Emacs as a daemon, because the daemon lacks access to a capable
+display.  Instead, define a Lisp function which performs all those
+customizations, and then use @code{add-hook} to add that function to the
+hook @code{server-after-make-frame-hook} (@pxref{Init Examples}).  Then these
+customizations will be run by Emacs after it creates a frame when you
+invoke @command{emacsclient}.  (You will probably need to arrange for
+these customizations to run only once, the first time a client frame is
+created.)
 
 @item --no-desktop
 @opindex --no-desktop

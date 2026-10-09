@@ -660,10 +660,9 @@ The current directory at call time should not affect the result (Bug#50630)."
 
 (ert-deftest dired-test-filename-with-newline-1 () ; bug#79528, bug#80499
   "Test handling of file name with literal embedded newline."
-  ;; File names with embedded newlines are not allowed on MS-Windows and
-  ;; MS-DOS.
-  (skip-when (memq system-type '(windows-nt ms-dos)))
-  (skip-unless (dired--ls-accept-b-switch-p))
+  ;; The handling of file names with embedded newlines requires an `ls'
+  ;; that supports the "--dired" switch.
+  (skip-unless (dired--check-use-ls-dired))
   (with-current-buffer "*Messages*"
     (let ((inhibit-read-only t))
       (erase-buffer)))
@@ -696,10 +695,9 @@ The current directory at call time should not affect the result (Bug#50630)."
 
 (ert-deftest dired-test-filename-with-newline-2 () ; bug#79528, bug#80499
   "Test handling of file name with embedded newline using `b' switch."
-  ;; File names with embedded newlines are not allowed on MS-Windows and
-  ;; MS-DOS.
-  (skip-when (memq system-type '(windows-nt ms-dos)))
-  (skip-unless (dired--ls-accept-b-switch-p))
+  ;; The handling of file names with embedded newlines requires an `ls'
+  ;; that supports the "--dired" switch.
+  (skip-unless (dired--check-use-ls-dired))
   (with-current-buffer "*Messages*"
     (let ((inhibit-read-only t))
       (erase-buffer)))
@@ -728,9 +726,9 @@ The current directory at call time should not affect the result (Bug#50630)."
     (delete-directory dir t)))
 
 (ert-deftest dired-test-ls-error-message () ; bug#80499
-  "Test invoking `dired' on a nonexisting file.
+  "Test invoking `dired' on a nonexistent file.
 A buffer should pop up containing the error emitted by ls.  The buffer
-visiting the nonexisting file should killed before `dired' returns,
+visiting the nonexistent file should killed before `dired' returns,
 hence another buffer should be returned."
   (let* ((dir (ert-resource-file (file-name-as-directory "empty-dir")))
          (name (concat dir "bla"))
@@ -755,7 +753,7 @@ hence another buffer should be returned."
                  (null ls-lisp-use-insert-directory-program))
       (let ((errbuf (get-buffer "*ls error*"))
             ;; Since different `ls' programs can produce different
-            ;; messages for the nonexisting file error, we make a sample
+            ;; messages for the nonexistent file error, we make a sample
             ;; message to use for comparing the expected message with
             ;; the string in the error buffer.
             (ls-err (lambda (fn)
@@ -819,6 +817,16 @@ of the value of `dired-auto-toggle-b-switch'."
       (erase-buffer)))
   (let ((dired-auto-toggle-b-switch nil))
     (dired-test--filename-with-backslash-n)))
+
+(ert-deftest dired-test-set-dired--ls-error-buffer () ; bug#80499, Message #218
+  "Test visiting a directory after setting `dired--ls-error-buffer'."
+  (let ((dir (ert-resource-file (file-name-as-directory "test-dir"))))
+    (make-directory dir t)
+    (setq dired--ls-error-buffer (get-buffer-create "*ls error*"))
+    (find-file dir)
+    (should (equal list-buffers-directory dir))
+    (kill-buffer (current-buffer))
+    (delete-directory dir)))
 
 (provide 'dired-tests)
 ;;; dired-tests.el ends here

@@ -160,7 +160,8 @@ All commands in `lisp-mode-shared-map' are inherited by this map."
       'middle-separator)
 
     (let* ((string (thing-at-mouse click 'symbol t))
-           (symbol (when (stringp string) (intern string)))
+           ;; FIXME: Why don't we know if we receive a string or a symbol?
+           (symbol (when (stringp string) (shorthands-intern string)))
            (title (cond
                    ((not (symbolp symbol)) nil)
                    ((and (facep symbol) (not (fboundp symbol)))
@@ -287,6 +288,12 @@ If this is non-nil, `emacs-lisp-mode' uses code analysis to determine
 the role of each symbol and highlight it accordingly.  We call this kind
 of highlighting \"semantic highlighting\".
 
+If `elisp-add-help-echo' is non-nil, also annotate the symbol with the
+`help-echo' text property.  If `cursor-sensor-mode' is enabled, also
+arrange for all occurrences of each local variable to be highlighted
+with the `elisp-variable-at-point' face whenever point is on any of that
+variable's occurrences.
+
 Semantic highlighting works best when you keep your code syntactically
 correct while editing it, for example by using `electric-pair-mode'.
 
@@ -300,6 +307,7 @@ and therefore will not be semantically highlighted.
 See the function `elisp-scope-analyze-form' for more details about the
 code analysis."
   :type 'boolean
+  :safe #'booleanp
   :version "31.1")
 
 (defface elisp-symbol-at-mouse
@@ -562,6 +570,7 @@ code analysis."
   "Whether to add `help-echo' property to symbols while highlighting them.
 This option has effect only if `elisp-fontify-semantically' is non-nil."
   :version "31.1"
+  :safe #'booleanp
   :type 'boolean)
 
 (defun elisp--annotate-symbol-with-help-echo (role beg end sym)
@@ -571,7 +580,12 @@ This option has effect only if `elisp-fontify-semantically' is non-nil."
      ;; HLP is either a string, or a function that takes SYM as an
      ;; additional argument on top of the usual WINDOW, OBJECT and POS
      ;; that `help-echo' functions takes.
-     (if (stringp hlp) hlp (apply-partially hlp sym)))))
+     (if (stringp hlp) hlp
+       (let ((cache 'unset))
+         (lambda (win obj pos)
+           (if (eq cache 'unset)
+               (setq cache (funcall hlp sym win obj pos))
+             cache)))))))
 
 (defvar font-lock-beg)
 (defvar font-lock-end)
@@ -607,7 +621,13 @@ semantic highlighting takes precedence."
 
 If `elisp-add-help-echo' is non-nil, also annotate the symbol with the
 `help-echo' text property.  If `cursor-sensor-mode' is enabled and ID is
-non-nil, also annotate the symbol with `cursor-sensor-functions'."
+non-nil (i.e. SYM is local variable), also annotate the symbol with
+`cursor-sensor-functions' that highlight all occurrences of SYM with the
+same ID whenever point is on this SYM.
+
+For the precise meaning of the arguments of this function, see the
+docstring of `elisp-scope-analyze-form'.  This function is intended for
+use with `elisp-scope-analyze-form' as its CALLBACK argument."
   (let ((end (progn (goto-char beg) (read (current-buffer)) (point))))
     (let ((face (elisp-scope-get-symbol-role-property role :face)))
       (add-face-text-property
@@ -677,7 +697,7 @@ happens in interactive invocations.
 When calling from Lisp, use nil or a positive number as the value
 of INTERACTIVE to enable `lexical-binding', a negative number to
 disable it."
-  (interactive "p")
+  (interactive "@p")
   (let* ((disable-lexbind (or (and (numberp interactive)
                                    (< interactive 0))
                               (if current-prefix-arg t)))
@@ -964,7 +984,7 @@ It can be quoted, or be inside a quoted form."
 ;; the *Completions* buffer.
 
 (defun elisp--company-doc-buffer (str)
-  (let ((symbol (intern-soft str)))
+  (let ((symbol (shorthands-intern-soft str)))
     ;; FIXME: we really don't want to "display-buffer and then undo it".
     (save-window-excursion
       ;; Make sure we don't display it in another frame, otherwise
@@ -981,7 +1001,7 @@ It can be quoted, or be inside a quoted form."
           (help-buffer))))))
 
 (defun elisp--company-doc-string (str)
-  (let* ((symbol (intern-soft str))
+  (let* ((symbol (shorthands-intern-soft str))
          (doc (if (fboundp symbol)
                   (documentation symbol t)
                 (documentation-property symbol 'variable-documentation t))))
@@ -994,7 +1014,7 @@ It can be quoted, or be inside a quoted form."
 (declare-function find-function-library "find-func" (function &optional l-o v))
 
 (defun elisp--company-location (str)
-  (let ((sym (intern-soft str)))
+  (let ((sym (shorthands-intern-soft str)))
     (cond
      ((fboundp sym) (find-definition-noselect sym nil))
      ((boundp sym) (find-definition-noselect sym 'defvar))
@@ -1012,20 +1032,13 @@ Elisp obarray.  If the obarray is modified by any means (such as
 interning or uninterning a symbol), this variable is set to nil.")
 
 (defun elisp--read-symbol-shorthands (s)
-  "Return a fresh list of shorthand-ed alternative spellings of symbol S."
-  (let ((retval ()))
-    (cl-loop
-     for (shorthand . longhand) in read-symbol-shorthands
-     for full-name = (symbol-name s)
-     when (string-prefix-p longhand full-name)
-     do (let ((sym (make-symbol
-                    (concat shorthand
-                            (substring full-name
-                                       (length longhand))))))
-          (put sym 'elisp--longhand s)
-          (push sym retval)
-          retval))
-    retval))
+  (let ((shs (shorthands-of-symbol s)))
+    (when shs
+      (mapcar (lambda (sh)
+                (let ((sym (make-symbol sh)))
+                  (put sym 'elisp--longhand s)
+                  sym))
+              shs))))
 
 (defun elisp--completion-local-symbols ()
   "Compute collections of all Elisp symbols for completion purposes.
@@ -1125,15 +1138,18 @@ functions are annotated with \"<f>\" via the
                     (quoted
                      (list nil (elisp--completion-local-symbols)
                            ;; Don't include all symbols (bug#16646).
-                           :predicate (lambda (sym)
-                                        ;; shorthand-aware
-                                        (let ((sym (intern-soft (symbol-name sym))))
-                                          (or (boundp sym)
-                                              (fboundp sym)
-                                              (featurep sym)
-                                              (symbol-plist sym))))
+                           :predicate
+                           (lambda (sym)
+                             (let ((sym (or (get sym 'elisp--longhand)
+                                            sym)))
+                               (or (boundp sym)
+                                   (fboundp sym)
+                                   (featurep sym)
+                                   (symbol-plist sym))))
                            :annotation-function
-                           (lambda (str) (if (fboundp (intern-soft str)) " <f>"))
+                           (lambda (str)
+                             (if (fboundp (shorthands-intern-soft str))
+                                 " <f>"))
                            :company-kind #'elisp--company-kind
                            :company-doc-buffer #'elisp--company-doc-buffer
                            :company-docsig #'elisp--company-doc-string
@@ -1166,8 +1182,9 @@ functions are annotated with \"<f>\" via the
                                          (if (memq (char-syntax c) '(?w ?_))
                                              (let ((pt (point)))
                                                (forward-sexp)
-                                               (intern-soft
-                                                (buffer-substring pt (point))))))))
+                                               (shorthands-intern-soft
+                                                (buffer-substring
+                                                 pt (point))))))))
                             (error nil))))
                      (pcase parent
                        ;; FIXME: Rather than hardcode special cases here,
@@ -1230,7 +1247,7 @@ functions are annotated with \"<f>\" via the
                     (cddr table-etc)))))))))
 
 (defun elisp--company-kind (str)
-  (let ((sym (intern-soft str)))
+  (let ((sym (shorthands-intern-soft str)))
     (cond
      ((or (macrop sym) (special-form-p sym)) 'keyword)
      ((fboundp sym) 'function)
@@ -1240,7 +1257,7 @@ functions are annotated with \"<f>\" via the
      (t 'text))))
 
 (defun elisp--company-deprecated (str)
-  (let ((sym (intern-soft str)))
+  (let ((sym (shorthands-intern-soft str)))
     (or (get sym 'byte-obsolete-variable)
         (get sym 'byte-obsolete-info))))
 
@@ -1449,7 +1466,7 @@ namespace but with lower confidence."
 
 (cl-defmethod xref-backend-definitions ((_backend (eql 'elisp)) identifier)
   (require 'find-func)
-  (let ((sym (intern-soft identifier)))
+  (let ((sym (shorthands-intern-soft identifier)))
     (when sym
       (let* ((pos (get-text-property 0 'pos identifier))
              (namespace (if (and pos
@@ -1554,7 +1571,7 @@ namespace but with lower confidence."
               ;; `symbol' is a name for the default constructor created by
               ;; cl-defstruct, so return the location of the cl-defstruct.
               (let* ((type-name (match-string 1 doc))
-                     (type-symbol (intern type-name))
+                     (type-symbol (shorthands-intern type-name))
                      (file (find-lisp-object-file-name
                             type-symbol 'define-type))
                      (summary (format elisp--xref-format-extra
@@ -1650,6 +1667,30 @@ namespace but with lower confidence."
 
     xrefs))
 
+(cl-defmethod xref-backend-xref-kinds ((_backend (eql 'elisp)))
+  '((:kind defun :name "function" :key ?f)
+    (:kind defvar :name "variable" :key ?v)
+    (:kind cl-defgeneric :name "generic function" :key ?g)
+    (:kind cl-defmethod :name "generic method" :key ?m)
+    (:kind define-type :name "constructor" :key ?n)
+    (:kind defalias :name "function alias" :key ?a)
+    (:kind defface :name "face" :key ?c)
+    (:kind feature :name "feature" :key ?e)))
+
+(cl-defmethod xref-backend-xrefs-by-kind ((_backend (eql 'elisp)) identifier kind)
+  (require 'find-func)
+  (let ((sym (intern-soft identifier)))
+    (when sym
+      ;; FIXME: Should be less work if we limit the search, not filter.
+      (let* ((defs (elisp--xref-find-definitions sym)))
+        (cl-loop for d in defs
+                 for def-kind = (xref-elisp-location-type (xref-item-location d))
+                 when (if (not (eq kind 'defun))
+                          (eq def-kind kind)
+                        (memq def-kind '( nil cl-defgeneric cl-defmethod
+                                          define-type defalias)))
+                 collect d)))))
+
 (declare-function xref-apropos-regexp "xref" (pattern))
 
 (cl-defmethod xref-backend-apropos ((_backend (eql 'elisp)) pattern)
@@ -1660,19 +1701,35 @@ namespace but with lower confidence."
              (push (elisp--xref-find-definitions sym) lst))
            (nreverse lst))))
 
-(defvar elisp--xref-identifier-completion-table
-  (apply-partially #'completion-table-with-predicate
-                   obarray
-                   (lambda (sym)
-                     (or (boundp sym)
-                         (fboundp sym)
-                         (featurep sym)
-                         (facep sym)))
-                   'strict))
-
 (cl-defmethod xref-backend-identifier-completion-table ((_backend
                                                          (eql 'elisp)))
-  elisp--xref-identifier-completion-table)
+  obarray)
+
+(cl-defmethod xref-backend-identifier-completion-predicate ((_backend (eql 'elisp))
+                                                            &optional kind)
+  (if (not kind)
+      (lambda (sym)
+        (or (boundp sym)
+            (fboundp sym)
+            (featurep sym)
+            (facep sym)))
+    (cl-ecase kind
+      (defun #'fboundp)
+      (defvar #'boundp)
+      (cl-defgeneric (lambda (sym) (cl--generic sym)))
+      (cl-defmethod
+        (lambda (sym)
+          (and (cl--generic sym)
+               (cl--generic-method-table (cl--generic sym)))))
+      (define-type
+       (lambda (sym)
+         (and (functionp sym)
+              (let ((doc (documentation sym t)))
+                (and doc
+                     (string-search "Constructor for objects of type" doc))))))
+      (defalias #'function-alias-p)
+      (defface #'facep)
+      (feature #'featurep))))
 
 (cl-defstruct (xref-elisp-location
                (:constructor xref-make-elisp-location (symbol type file)))
@@ -2027,7 +2084,7 @@ POS specifies the starting position where EXP was found and defaults to point."
         (while (re-search-forward
                 "(def\\(?:var\\|const\\|custom\\)[ \t\n]+\\([^; '()\n\t]+\\)"
                 pos t)
-          (let ((var (intern (match-string 1))))
+          (let ((var (shorthands-intern (match-string 1))))
             (unless (or (special-variable-p var)
                         (syntax-ppss-toplevel-pos
                          (save-excursion
@@ -2563,7 +2620,7 @@ ARGS is the argument list of function SYM."
   (let ((c (char-after (point))))
     (and c
          (memq (char-syntax c) '(?w ?_))
-         (intern-soft (current-word)))))
+         (shorthands-intern-soft (current-word)))))
 
 (defun elisp-function-argstring (arglist)
   "Return ARGLIST as a string enclosed by ().
@@ -2601,11 +2658,12 @@ Calls REPORT-FN directly."
             (generate-new-buffer " *checkdoc-temp*")))
       (unwind-protect
           (save-excursion
-            ;; checkdoc-current-buffer can error if there are
-            ;; unbalanced parens, for example, but this shouldn't
-            ;; disable the backend (bug#29176).
-            (ignore-errors
-              (checkdoc-current-buffer t)))
+            (without-restriction
+              ;; checkdoc-current-buffer can error if there are
+              ;; unbalanced parens, for example, but this shouldn't
+              ;; disable the backend (bug#29176).
+              (ignore-errors
+                (checkdoc-current-buffer t))))
         (kill-buffer checkdoc-diagnostic-buffer)))
     (funcall report-fn
              (cl-loop for (text start end _unfixable) in
@@ -2712,14 +2770,6 @@ variables `invocation-name' and `invocation-directory'."
   "A Flymake backend for elisp byte compilation.
 Spawn an Emacs process that byte-compiles a file representing the
 current buffer state and calls REPORT-FN when done."
-  (unless (trusted-content-p)
-    ;; FIXME: Use `bwrap' and friends to compile untrusted content.
-    ;; FIXME: We emit a message *and* signal an error, because by default
-    ;; Flymake doesn't display the warning it puts into "*flymake log*".
-    (message "Disabling elisp-flymake-byte-compile in %s (untrusted content)"
-             (buffer-name))
-    (user-error "Disabling elisp-flymake-byte-compile in %s (untrusted content)"
-                (buffer-name)))
   (when elisp-flymake--byte-compile-process
     (when (process-live-p elisp-flymake--byte-compile-process)
       (kill-process elisp-flymake--byte-compile-process)))

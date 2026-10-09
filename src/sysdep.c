@@ -57,6 +57,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef DARWIN_OS
 # include <libproc.h>
+# include <mach/mach_time.h>
 #endif
 
 #ifdef __FreeBSD__
@@ -286,7 +287,7 @@ get_current_dir_name_or_unreachable (void)
   bufsize_max = min (bufsize_max, PATH_MAX);
 #endif
 
-# if HAVE_GET_CURRENT_DIR_NAME && !BROKEN_GET_CURRENT_DIR_NAME
+# if HAVE_GET_CURRENT_DIR_NAME
   bool use_libc = true;
   if (use_libc)
     {
@@ -304,7 +305,7 @@ get_current_dir_name_or_unreachable (void)
     }
 # endif
 
-  size_t pwdlen;
+  ptrdiff_t pwdlen;
   struct stat dotstat, pwdstat;
   pwd = getenv ("PWD");
 
@@ -430,7 +431,7 @@ init_baud_rate (int fd)
 #endif /* not DOS_NT */
     }
 
-  baud_rate = (emacs_ospeed < ARRAYELTS (baud_convert)
+  baud_rate = (emacs_ospeed < countof (baud_convert)
 	       ? baud_convert[emacs_ospeed] : 9600);
   if (baud_rate == 0)
     baud_rate = 1200;
@@ -1310,9 +1311,9 @@ init_sys_modes (struct tty_display_info *tty_out)
     }
 #endif /* F_GETOWN */
 
-  const size_t buffer_size = (tty_out->output_buffer_size
-			      ? tty_out->output_buffer_size
-			      : BUFSIZ);
+  const ptrdiff_t buffer_size = (tty_out->output_buffer_size
+				 ? tty_out->output_buffer_size
+				 : BUFSIZ);
   setvbuf (tty_out->output, NULL, _IOFBF, buffer_size);
 
   if (tty_out->terminal->set_terminal_modes_hook)
@@ -2980,10 +2981,9 @@ int
 serial_open (Lisp_Object port)
 {
   int fd = emacs_open (SSDATA (port), O_RDWR | O_NOCTTY | O_NONBLOCK, 0);
-  if (fd < 0)
-    report_file_error ("Opening serial port", port);
 #ifdef TIOCEXCL
-  ioctl (fd, TIOCEXCL, (char *) 0);
+  if (0 <= fd)
+    ioctl (fd, TIOCEXCL, (char *) 0);
 #endif
 
   return fd;
@@ -3137,7 +3137,7 @@ static const struct speed_struct speeds[] =
 static speed_t
 convert_speed (speed_t speed)
 {
-  for (size_t i = 0; i < ARRAYELTS (speeds); i++)
+  for (ptrdiff_t i = 0; i < countof (speeds); i++)
     {
       if (speed == speeds[i].internal)
 	return speed;
@@ -3357,7 +3357,7 @@ list_system_processes (void)
   int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
 #endif
   size_t len;
-  size_t mibsize = ARRAYELTS (mib);
+  size_t mibsize = countof (mib);
   struct kinfo_proc *procs;
   size_t i;
 
@@ -4371,19 +4371,36 @@ system_process_attributes (Lisp_Object pid)
   attrs = Fcons (Fcons (Qtpgid, INT_TO_INTEGER (proc.kp_eproc.e_tpgid)),
 		 attrs);
 
+  /* Captured from whichever rusage path is available below, then used
+     after 'etime' is known to compute 'pcpu'.  Negative means unknown.  */
+  double cpu_time_sec = -1.0;
+
 #if HAVE_RUSAGE_INFO_CURRENT
   rusage_info_current ri;
   if (proc_pid_rusage(proc_id, RUSAGE_INFO_CURRENT, (rusage_info_t *) &ri) == 0)
     {
-      struct timespec utime = make_timespec (ri.ri_user_time / TIMESPEC_HZ,
-					     ri.ri_user_time % TIMESPEC_HZ);
-      struct timespec stime = make_timespec (ri.ri_system_time / TIMESPEC_HZ,
-					     ri.ri_system_time % TIMESPEC_HZ);
+      /* 'ri_user_time' and 'ri_system_time' are expressed in Mach
+	 absolute-time units, not nanoseconds.  On Intel Macs the
+	 timebase is 1:1 with nanoseconds, but on Apple Silicon it is
+	 125/3, so convert through 'mach_timebase_info' to get actual
+	 nanoseconds before exposing the values to Lisp.  */
+      static mach_timebase_info_data_t timebase;
+      if (timebase.denom == 0)
+	mach_timebase_info (&timebase);
+      uint64_t user_ns = ri.ri_user_time * timebase.numer / timebase.denom;
+      uint64_t sys_ns  = ri.ri_system_time * timebase.numer / timebase.denom;
+
+      struct timespec utime = make_timespec (user_ns / TIMESPEC_HZ,
+					     user_ns % TIMESPEC_HZ);
+      struct timespec stime = make_timespec (sys_ns / TIMESPEC_HZ,
+					     sys_ns % TIMESPEC_HZ);
       attrs = Fcons (Fcons (Qutime, make_lisp_time (utime)), attrs);
       attrs = Fcons (Fcons (Qstime, make_lisp_time (stime)), attrs);
       attrs = Fcons (Fcons (Qtime, make_lisp_time (timespec_add (utime, stime))), attrs);
 
       attrs = Fcons (Fcons (Qmajflt, INT_TO_INTEGER (ri.ri_pageins)), attrs);
+
+      cpu_time_sec = ((double) user_ns + (double) sys_ns) / (double) TIMESPEC_HZ;
   }
 #else  /* !HAVE_RUSAGE_INFO_CURRENT */
   struct rusage *rusage = proc.kp_proc.p_ru;
@@ -4399,6 +4416,9 @@ system_process_attributes (Lisp_Object pid)
       attrs = Fcons (Fcons (Qutime, utime), attrs);
       attrs = Fcons (Fcons (Qstime, stime), attrs);
       attrs = Fcons (Fcons (Qtime, Ftime_add (utime, stime)), attrs);
+
+      cpu_time_sec = (rusage->ru_utime.tv_sec + rusage->ru_stime.tv_sec)
+	+ (rusage->ru_utime.tv_usec + rusage->ru_stime.tv_usec) / 1.0e6;
     }
 #endif  /* !HAVE_RUSAGE_INFO_CURRENT */
 
@@ -4411,13 +4431,44 @@ system_process_attributes (Lisp_Object pid)
   Lisp_Object etime = Ftime_convert (Ftime_subtract (now, start), Qnil);
   attrs = Fcons (Fcons (Qetime, etime), attrs);
 
+  /* Lifetime-average CPU usage: total CPU time divided by elapsed wall
+     time, as on GNU/Linux.  Not an instantaneous rate, and it sums
+     every thread, so it can exceed 100.  */
+  if (cpu_time_sec >= 0.0)
+    {
+      double elapsed = float_time (etime);
+      if (elapsed > 0.0)
+	{
+	  double pcpu = 100.0 * cpu_time_sec / elapsed;
+	  attrs = Fcons (Fcons (Qpcpu, make_float (pcpu)), attrs);
+	}
+    }
+
 #if HAVE_PROC_PIDINFO
   struct proc_taskinfo taskinfo;
   if (proc_pidinfo (proc_id, PROC_PIDTASKINFO, 0, &taskinfo, sizeof (taskinfo)) > 0)
     {
+      uint64_t rss_kb = taskinfo.pti_resident_size / 1024;
       attrs = Fcons (Fcons (Qvsize, make_fixnum (taskinfo.pti_virtual_size / 1024)), attrs);
-      attrs = Fcons (Fcons (Qrss, make_fixnum (taskinfo.pti_resident_size / 1024)), attrs);
+      attrs = Fcons (Fcons (Qrss, make_fixnum (rss_kb)), attrs);
       attrs = Fcons (Fcons (Qthcount, make_fixnum (taskinfo.pti_threadnum)), attrs);
+
+      /* Percentage of physical RAM used by the process's resident set.
+	 Mirrors the GNU/Linux branch, which divides RSS by
+	 procfs_get_total_memory ().  On Darwin the total comes from
+	 sysctl hw.memsize (bytes).  */
+      uint64_t total_mem = 0;
+      size_t tlen = sizeof total_mem;
+      int mib2[2] = { CTL_HW, HW_MEMSIZE };
+      if (sysctl (mib2, 2, &total_mem, &tlen, NULL, 0) == 0 && total_mem > 0)
+	{
+	  /* 'pti_resident_size' counts shared pages in full, so this can
+	     exceed 100.  */
+	  double pmem = 100.0 * rss_kb / (total_mem / 1024.0);
+	  if (pmem > 100.0)
+	    pmem = 100.0;
+	  attrs = Fcons (Fcons (Qpmem, make_float (pmem)), attrs);
+	}
     }
 #endif	/* HAVE_PROC_PIDINFO */
 

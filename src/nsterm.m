@@ -446,10 +446,11 @@ ev_modifiers_helper (unsigned int flags, unsigned int left_mask,
 /* This is a piece of code which is common to all the event handling
    methods.  Maybe it should even be a function.  */
 #define EV_TRAILER(e)						\
-  {								\
-    XSETFRAME (emacs_event->frame_or_window, emacsframe);	\
-    EV_TRAILER2 (e);						\
-  }
+  if (emacs_event->kind != NO_EVENT)				\
+    {								\
+      XSETFRAME (emacs_event->frame_or_window, emacsframe);	\
+      EV_TRAILER2 (e);						\
+    }
 
 #define EV_TRAILER2(e)                                                  \
   {                                                                     \
@@ -1651,8 +1652,13 @@ ns_make_frame_visible (struct frame *f)
           unblock_input ();
         }
 
-      /* Making a frame invisible seems to break the parent->child
-         relationship, so reinstate it.  */
+      /* A child window cannot remain attached while hidden.  Per Apple's
+         documentation, "Calling orderOut(_:) on a child window causes the
+         window to be removed from its parent window before being removed"
+         (https://developer.apple.com/documentation/appkit/nswindow/orderout(_:)),
+         and ns_make_frame_invisible hides the frame with -orderOut:.  The
+         parent->child relationship is therefore broken while invisible, so
+         reinstate it now that we are making the frame visible again.  */
       if ([window parentWindow] == nil && FRAME_PARENT_FRAME (f) != NULL)
         {
           block_input ();
@@ -2645,7 +2651,7 @@ ns_convert_key (unsigned code)
     Internal call used by NSView-keyDown.
    -------------------------------------------------------------------------- */
 {
-  const unsigned last_keysym = ARRAYELTS (convert_ns_to_X_keysym);
+  const unsigned last_keysym = countof (convert_ns_to_X_keysym);
   unsigned keysym;
   /* An array would be faster, but less easy to read.  */
   for (keysym = 0; keysym < last_keysym; keysym += 2)
@@ -2851,7 +2857,6 @@ ns_scroll_run (struct window *w, struct run *run)
 
   NSTRACE ("ns_scroll_run");
 
-  /* begin copy from other terms */
   /* Get frame-relative bounding box of the text display area of W,
      without mode lines.  Include in this box the left and right
      fringe of W.  */
@@ -2869,6 +2874,15 @@ ns_scroll_run (struct window *w, struct run *run)
 	height = bottom_y - from_y;
       else
 	height = run->height;
+
+      /* If the destination is off the top of the current window, don't
+	 draw over the window above.  */
+      if (to_y < y) {
+	int d = y - to_y;
+	height -= d;
+	to_y += d;
+	from_y += d;
+      }
     }
   else
     {
@@ -2879,7 +2893,6 @@ ns_scroll_run (struct window *w, struct run *run)
       else
 	height = run->height;
     }
-  /* end copy from other terms */
 
   if (height == 0)
       return;
@@ -5023,6 +5036,7 @@ ns_send_appdefined (int value)
   if (send_appdefined)
     {
       NSEvent *nxev;
+      NSWindow *dest;
 
       /* We only need one NX_APPDEFINED event to stop NXApp from running.  */
       send_appdefined = NO;
@@ -5035,11 +5049,28 @@ ns_send_appdefined (int value)
           timed_entry = nil;
         }
 
+      /* Address the event to a window that actually exists.  With no main
+         window -- miniaturized, or mid handover of key/main status -- the
+         window number would be 0 and AppKit would silently discard the
+         event.  That is fatal here: send_appdefined has just been cleared
+         and timed_entry invalidated, so nothing would ever end [NSApp run]
+         again, and Emacs would hang forever with its UI unresponsive.  */
+      dest = [NSApp mainWindow];
+      if (dest == nil)
+        dest = [NSApp keyWindow];
+      if (dest == nil)
+        for (NSWindow *cand in [NSApp windows])
+          if ([cand windowNumber] > 0)
+            {
+              dest = cand;
+              break;
+            }
+
       nxev = [NSEvent otherEventWithType: NSEventTypeApplicationDefined
                                 location: NSMakePoint (0, 0)
                            modifierFlags: 0
                                timestamp: 0
-                            windowNumber: [[NSApp mainWindow] windowNumber]
+                            windowNumber: [dest windowNumber]
                                  context: [NSApp context]
                                  subtype: 0
                                    data1: value
@@ -6128,13 +6159,15 @@ ns_term_init (Lisp_Object display_name)
 #endif
                             NSPasteboardTypeURL, nil] retain];
 
-  /* If fullscreen is in init/default-frame-alist, focus isn't set
-     right for fullscreen windows, so set this.  */
-  [NSApp activateIgnoringOtherApps:YES];
-
   NSTRACE_MSG ("Call NSApp run");
-
   [NSApp run];
+
+#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 140000
+  [NSApp activate];
+#else
+  [NSApp activateIgnoringOtherApps:YES];
+#endif
+
   ns_do_open_file = YES;
 
 #ifdef NS_IMPL_GNUSTEP
@@ -8261,7 +8294,10 @@ ns_in_echo_area (void)
             old_title = 0;
           }
       }
-    else if (fs_state == FULLSCREEN_NONE && ! maximizing_resize
+    /* Redraw the window title with new dimensions only when actively
+       being resized by a user.  */
+    else if ([[self window] inLiveResize]
+	     && fs_state == FULLSCREEN_NONE && ! maximizing_resize
              && [[self window] title] != NULL)
       {
         char *size_title;
@@ -8421,13 +8457,37 @@ ns_in_echo_area (void)
 }
 
 #ifdef NS_IMPL_COCOA
+static void cancel_ns_deferred_UAZoomChangeFocus_timer ()
+{
+  if (ns_deferred_UAZoomChangeFocus_timer
+      && ns_deferred_UAZoomChangeFocus_timer.valid)
+    {
+      [ns_deferred_UAZoomChangeFocus_timer invalidate];
+      [ns_deferred_UAZoomChangeFocus_timer release];
+    }
+  ns_deferred_UAZoomChangeFocus_timer = nil;
+}
+#endif
+
+- (void)windowWillClose: (NSNotification *)notification
+{
+#ifdef NS_IMPL_COCOA
+  /* Cancel the zoom focus change timer if its window is closed before
+     it runs.  */
+  cancel_ns_deferred_UAZoomChangeFocus_timer ();
+#endif
+}
+
+#ifdef NS_IMPL_COCOA
 - (void)deferred_UAZoomChangeFocus_handler: (NSTimer *)timer
 {
-  EmacsView *view = FRAME_NS_VIEW (emacsframe);
-  ns_UAZoomChangeFocus (view, true);
-  [ns_deferred_UAZoomChangeFocus_timer invalidate];
-  [ns_deferred_UAZoomChangeFocus_timer release];
-  ns_deferred_UAZoomChangeFocus_timer = nil;
+  /* The frame may be deleted before the timer fires.  */
+  if (FRAME_LIVE_P (emacsframe))
+    {
+      EmacsView *view = FRAME_NS_VIEW (emacsframe);
+      ns_UAZoomChangeFocus (view, true);
+    }
+  cancel_ns_deferred_UAZoomChangeFocus_timer ();
 }
 #endif
 
@@ -9283,6 +9343,16 @@ ns_in_echo_area (void)
   NSTRACE_RECT ("Source", srcRect);
   NSTRACE_POINT ("Destination", dest);
 
+  /* If the destination is off the top of the pixel buffer, fix the
+     source and destination to copy only to y = 0.  */
+  if (dest.y < 0)
+    {
+      int d = dest.y;
+      dest.y = 0;
+      srcRect.origin.y -= d;
+      srcRect.size.height += d;
+    }
+
   NSRect dstRect = NSMakeRect (dest.x, dest.y, NSWidth (srcRect),
                                NSHeight (srcRect));
 
@@ -9799,14 +9869,6 @@ ns_in_echo_area (void)
       if ([self respondsToSelector:@selector(setTabbingMode:)])
         [self setTabbingMode:NSWindowTabbingModeDisallowed];
 #endif
-      /* Always show the toolbar below the window title.  This is needed
-	 on Mac OS 11+ where the toolbar style is decided by the system
-	 (which is unpredictable) and the newfangled "compact" toolbar
-	 may be chosen (which is undesirable).  */
-#if defined (NS_IMPL_COCOA) && MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
-      if ([self respondsToSelector:@selector(setToolbarStyle:)])
-	[self setToolbarStyle: NSWindowToolbarStyleExpanded];
-#endif
     }
 
   return self;
@@ -9923,7 +9985,7 @@ ns_in_echo_area (void)
 
 #ifdef NS_IMPL_COCOA
 #if MAC_OS_X_VERSION_MIN_REQUIRED < 1070
-      if ([ourView respondsToSelector:@selector (toggleFullScreen)])
+      if ([ourView respondsToSelector:@selector (toggleFullScreen:)])
 #endif
           /* If we are the descendent of a fullscreen window and we
              have no new parent, go fullscreen.  */
@@ -9948,15 +10010,22 @@ ns_in_echo_area (void)
 
 #ifdef NS_IMPL_COCOA
 #if MAC_OS_X_VERSION_MIN_REQUIRED < 1070
-      if ([ourView respondsToSelector:@selector (toggleFullScreen)])
+      if ([ourView respondsToSelector:@selector (toggleFullScreen:)])
 #endif
 	/* Child frames must not be fullscreen.  */
 	if ([ourView fsIsNative] && [ourView isFullscreen])
 	  [ourView toggleFullScreen:self];
 #endif
 
-      [parentWindow addChildWindow:self
-                           ordered:NSWindowAbove];
+      /* -addChildWindow: also orders the child window onto the screen, so
+         attaching a child frame Emacs considers invisible is what
+         resurrects a dismissed completion popup (corfu, company-box, ...)
+         when relationships are rebuilt.  Only attach a visible child; a
+         hidden one is re-attached by ns_make_frame_visible when it is
+         shown again.  */
+      if (FRAME_VISIBLE_P (ourFrame))
+        [parentWindow addChildWindow:self
+                             ordered:NSWindowAbove];
     }
 
   /* Check our child windows are configured correctly.  */
